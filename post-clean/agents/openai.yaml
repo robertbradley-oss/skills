@@ -1,0 +1,4 @@
+interface:
+  display_name: "Post Clean"
+  short_description: "Inspect and apply approved task cleanup"
+  default_prompt: "Use $post-clean to inspect this completed task and apply only the cleanup candidates I approve."
