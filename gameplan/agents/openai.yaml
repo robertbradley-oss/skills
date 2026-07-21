@@ -1,0 +1,4 @@
+interface:
+  display_name: "GamePlan"
+  short_description: "Lock strategy, approve work, and verify closure"
+  default_prompt: "Use $gameplan to lock Outcome, Strategy, and Guardrails; approve at most one exact execution slice; require separate explicit approval before strategy changes or scope expansion; run only authorized validation and close through Update from direct evidence; and keep cleanup footprints and work reports non-authoritative."
