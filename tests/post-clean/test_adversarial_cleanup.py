@@ -238,7 +238,7 @@ class AdversarialInspectTests(AdversarialFixture):
         real_is_junction = inspect_module.is_junction
 
         def simulated_junction(path: Path) -> bool:
-            return path == candidate or real_is_junction(path)
+            return path.resolve() == candidate.resolve() or real_is_junction(path)
 
         with mock.patch.object(inspect_module, "is_junction", side_effect=simulated_junction):
             result = self.inspect()
@@ -439,7 +439,7 @@ class AdversarialApplyTests(AdversarialFixture):
         original_write = apply_module.atomic_write_text
 
         def fail_obligation_update(path: Path, content: str) -> None:
-            if path == self.footprint and "| `done` |" in content:
+            if path.resolve() == self.footprint.resolve() and "| `done` |" in content:
                 raise OSError("induced source update failure")
             original_write(path, content)
 
