@@ -22,6 +22,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+      - name: Check out canonical Clean Handoff
+        uses: actions/checkout@v7
+        with:
+          repository: robertbradley-oss/clean-handoff
+          ref: 5a308ab7426cbf0b6b5f81f14b634b1b5b4ca0e6
+          path: .canonical-clean-handoff
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -29,6 +39,19 @@ jobs:
         run: python -m pip install --disable-pip-version-check PyYAML==6.0.3
       - name: Validate skill packages
         run: python tools/validate_skills.py
+      - name: Verify canonical Clean Handoff bytes
+        run: git diff --no-index --exit-code -- clean-handoff .canonical-clean-handoff/skills/clean-handoff
+      - name: Check Clean Handoff JavaScript syntax
+        shell: pwsh
+        run: |
+          Get-ChildItem -LiteralPath clean-handoff -Recurse -File -Filter '*.mjs' | Sort-Object FullName | ForEach-Object {
+            node --check $_.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Run Clean Handoff tests
+        run: node --test clean-handoff/tests/*.test.mjs
+      - name: Check Clean Handoff public help
+        run: node clean-handoff/scripts/clean-handoff.mjs --help
       - name: Compile Post Clean helpers
         run: python -m py_compile post-clean/scripts/apply_cleanup.py post-clean/scripts/inspect_footprint.py
       - name: Run Post Clean tests

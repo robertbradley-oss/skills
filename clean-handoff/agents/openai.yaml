@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clean Handoff"
+  short_description: "Hand work to a new task or portable text"
+  default_prompt: "Use $clean-handoff to create one direct handoff or produce portable handoff text."
+policy:
+  allow_implicit_invocation: true

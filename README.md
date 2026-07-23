@@ -7,18 +7,21 @@ is independently installable and contains no plugin or marketplace packaging.
 
 | Skill | Purpose | Package |
 | --- | --- | --- |
+| Clean Handoff | Create trustworthy project handoffs for fresh Codex tasks. | [`clean-handoff/`](clean-handoff/) |
 | GamePlan | Preserve strategic continuity and control approved execution slices. | [`gameplan/`](gameplan/) |
 | Post Clean | Review GamePlan task footprints and perform explicitly approved cleanup safely. | [`post-clean/`](post-clean/) |
 
-Install either package with Codex's `$skill-installer` using this repository and
-the package path `gameplan` or `post-clean`. Start a new Codex task after
-installation so the skill catalog refreshes.
+Install any package with Codex's `$skill-installer` using this repository and
+the package path `clean-handoff`, `gameplan`, or `post-clean`. Start a new Codex
+task after installation so the skill catalog refreshes.
 
-## Planned migration
+## Canonical source
 
-Clean Handoff will join this repository only after its standalone
-`clean-handoff` rebuild passes migration, installation, and workflow validation.
-The current Clean Handoff repositories remain authoritative until then.
+The `clean-handoff/` package is a byte-identical distribution of the canonical
+[`robertbradley-oss/clean-handoff`](https://github.com/robertbradley-oss/clean-handoff)
+standalone repository. This umbrella copy is installable, but it is not a
+second implementation authority; Clean Handoff changes originate in the
+canonical repository and are imported here only after validation.
 
 ## Retired products
 
@@ -28,5 +31,7 @@ into this active-skills repository.
 
 ## Repository validation
 
-The shared validation workflow checks both skill packages on Windows, macOS,
-and Linux, compiles the Post Clean helpers, and runs the Post Clean test suite.
+The shared validation workflow checks all three skill packages on Windows,
+macOS, and Linux, verifies Clean Handoff against its locked canonical source,
+runs its syntax and test gates, compiles the Post Clean helpers, and runs the
+Post Clean test suite.
