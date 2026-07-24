@@ -17,20 +17,6 @@ the package path `clean-handoff`, `gameplan`, `post-clean`, or
 `simplify-report`. Start a new Codex task after installation so the skill
 catalog refreshes.
 
-## Canonical source
-
-The `clean-handoff/` package is a byte-identical distribution of the canonical
-[`robertbradley-oss/clean-handoff`](https://github.com/robertbradley-oss/clean-handoff)
-standalone repository. This umbrella copy is installable, but it is not a
-second implementation authority; Clean Handoff changes originate in the
-canonical repository and are imported here only after validation.
-
-## Retired products
-
-ScopeLock remains preserved in its own archived repository. See
-[`RETIRED.md`](RETIRED.md) for the historical pointer; its source is not copied
-into this active-skills repository.
-
 ## Repository validation
 
 The shared validation workflow checks all four skill packages on Windows,
