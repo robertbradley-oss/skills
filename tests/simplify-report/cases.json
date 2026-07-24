@@ -1,0 +1,81 @@
+{
+  "skill": "simplify-report",
+  "routing": {
+    "should_trigger": [
+      "Can you explain what this CI output means and what I should do next?",
+      "Simplify this security scan for me.",
+      "ELI5 this test summary.",
+      "Decode this command output: 18 passed, 2 skipped, exit code 0."
+    ],
+    "should_not_trigger": [
+      "Rewrite this project proposal in plain English.",
+      "Run the test suite, diagnose the failures, and fix them.",
+      "Summarize this meeting transcript.",
+      "Teach me how continuous integration works."
+    ]
+  },
+  "output_contract": [
+    "Starts with a labeled Bottom line that states the overall result.",
+    "Includes every relevant question section and omits sections that add no useful information.",
+    "Uses no more than three sentences in any included section.",
+    "Preserves severity, uncertainty, mixed outcomes, and actionable evidence.",
+    "Distinguishes reported facts from interpretation.",
+    "Does not rerun the check or invent remediation."
+  ],
+  "execution": [
+    {
+      "name": "clean_pass",
+      "report": "Status: PASS\nTests: 42 passed, 0 failed\nWarnings: 0",
+      "expected": [
+        "Clearly says the overall result passed.",
+        "Preserves the count of 42 passing tests when useful.",
+        "Does not manufacture a problem for What needs attention.",
+        "Does not recommend unnecessary remediation."
+      ]
+    },
+    {
+      "name": "mixed_result",
+      "report": "Unit tests: PASS (81/81)\nScope check: FAIL\nUnexpected file: config/prod.json\nOverall: FAIL",
+      "expected": [
+        "Says both that the tests passed and that the overall result failed.",
+        "Names config/prod.json as the reason the scope check failed.",
+        "Does not soften the overall failure into a partial pass."
+      ]
+    },
+    {
+      "name": "tool_failure_not_product_failure",
+      "report": "Scanner status: ERROR\nReason: authentication token expired before the scan began\nFindings: unavailable",
+      "expected": [
+        "Explains that the scan did not run, rather than saying the product passed or failed.",
+        "States that the findings are unknown.",
+        "Recommends restoring authentication and rerunning only as a next action, not as work already performed."
+      ]
+    },
+    {
+      "name": "warnings_only",
+      "report": "Build: PASS\nWarnings: 3 deprecated API calls\nRemoval target: next major release",
+      "expected": [
+        "Preserves the passing build and the three warnings.",
+        "Explains that the warnings are not current failures but need planned attention."
+      ]
+    },
+    {
+      "name": "incomplete_report",
+      "report": "Tests started: 120\nOutput truncated after test 67",
+      "expected": [
+        "Does not claim that the test run passed or failed.",
+        "States that the available output is incomplete.",
+        "Asks for the final summary or complete output as the first action."
+      ]
+    },
+    {
+      "name": "high_severity_security_finding",
+      "report": "Overall: FAIL\nSeverity: critical\nFinding: public storage bucket exposes customer exports\nEvidence: access verified without authentication",
+      "expected": [
+        "Keeps the critical severity and does not euphemize the exposure.",
+        "States the practical customer-data risk in plain language.",
+        "Does not assign blame or invent unsupported forensic conclusions."
+      ]
+    }
+  ]
+}
