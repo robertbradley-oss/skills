@@ -1,7 +1,9 @@
 # RobertOS Skills
 
 Standalone Codex skills maintained by RobertOS. Each top-level skill directory
-is independently installable and contains no plugin or marketplace packaging.
+is independently installable, contains its own tests when applicable, and has
+no plugin or marketplace packaging. Repository-wide automation lives under
+`.github/` so the root remains focused on installable skill packages.
 
 ## Active skills
 
@@ -19,7 +21,8 @@ catalog refreshes.
 
 ## Repository validation
 
-The shared validation workflow checks all four skill packages on Windows,
-macOS, and Linux, verifies Clean Handoff against its locked canonical source,
-runs its syntax and test gates, compiles the Post Clean helpers, and runs the
-Post Clean and Simplify test suites.
+The shared validation workflow under [`.github/workflows/`](.github/workflows/)
+checks all four skill packages on Windows, macOS, and Linux, verifies Clean
+Handoff against its locked canonical source, runs its syntax and test gates,
+compiles the Post Clean helpers, and runs the package-local Post Clean and
+Simplify test suites.
