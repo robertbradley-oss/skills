@@ -1,30 +1,32 @@
 ---
 name: clean-handoff
-description: Move the minimum useful project context into one new Codex task or produce copyable handoff text. Use when the user asks for a direct task handoff or a portable handoff while preserving live GamePlan authority.
+description: Create one new Codex task with the minimum useful context, or return that context as copyable text. Use when the user asks to hand off, continue in a new task, or make a portable handoff.
 ---
 
 # Clean Handoff
 
-Move concise working context without transferring authority. The packaged helper only selects the intended saved project and prepares bounded redacted text; the agent owns the one optional Codex task-tool call.
+Keep this fast. Use context already present in the conversation; do not inspect the repository, run tests, or invoke a helper script just to prepare a handoff.
 
-## Core rules
+## Build the handoff
 
-- Read the live root `GAMEPLAN.md` immediately before any proposed mutation. It is the only plan authority.
-- Treat the handoff summary and copied plan text as context only, never approval.
-- Stop for one clear confirmation when target identity, safety, or live authority is absent, malformed, ambiguous, or changed.
-- Never change project source, Git state, installation state, or retained evidence unless the selected workflow explicitly authorizes that exact mutation.
-- Never call a network service from the helper. For Direct Handoff, the agent calls the Codex task tool exactly once after local preparation and never retries automatically.
-- Invoke only `scripts/clean-handoff.mjs`; internal module exports are not workflow APIs.
+Write a short destination prompt containing only:
 
-## Route the request
+- the objective;
+- completed and remaining work;
+- important decisions or constraints;
+- relevant files and validation state, when known;
+- the immediate next action.
 
-- **Direct Handoff:** Read [references/workflows/new-task.md](references/workflows/new-task.md).
-- **Portable Handoff:** Read [references/workflows/portable-handoff.md](references/workflows/portable-handoff.md).
+Do not include secrets, raw tool output, or speculative details. State that the destination must inspect live workspace state before changing anything. If a root `GAMEPLAN.md` exists, read it once immediately before handoff and treat it as the authority for plan status; do not search for it or stop when it is absent.
 
-These are the only active workflows. Other packaged Phase D files are retained evidence for Phase F review and are not workflow APIs.
+## Direct handoff
 
-## Report the result
+Use this route only when the user explicitly asks for a new Codex task.
 
-- Say whether a task was created, whether anything else changed, and exactly one safe next action.
-- Never expose raw saved-project IDs, secrets, or raw subprocess diagnostics.
-- Do not claim installation, deletion, cross-platform support, or destination authorization without direct evidence.
+1. Call `list_projects` once and select the saved project whose local path matches the current workspace. Ask one concise question only if there is no unique match.
+2. Call `create_thread` once with the short handoff as its prompt. Follow the tool's environment rules and do not wait for the new task to run.
+3. Report whether creation succeeded. Do not retry automatically or create local handoff files.
+
+## Portable handoff
+
+Return the short handoff in one copyable Markdown block. Do not call task tools or write files.
