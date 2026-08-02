@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: robertbradley-oss/clean-handoff
-          ref: 18e699652d874b0490c2fa80661c83ff2caab042
+          ref: 936ed3645f30472c9b04b6362001f246228dab3c
           path: .canonical-clean-handoff
           persist-credentials: false
       - uses: actions/setup-node@v7
