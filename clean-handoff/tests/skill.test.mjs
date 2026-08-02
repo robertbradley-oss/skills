@@ -43,7 +43,7 @@ test("runtime package has no helper or workflow-reference latency", async () => 
 });
 
 test("metadata remains concise and routable", async () => {
-  const skill = await fsp.readFile(path.join(root, "SKILL.md"), "utf8");
+  const skill = (await fsp.readFile(path.join(root, "SKILL.md"), "utf8")).replace(/\r\n/gu, "\n");
   const frontmatter = skill.slice(0, skill.indexOf("\n---", 4) + 4);
   assert.equal(frontmatter, `---
 name: clean-handoff
