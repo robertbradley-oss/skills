@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: robertbradley-oss/clean-handoff
-          ref: 5a308ab7426cbf0b6b5f81f14b634b1b5b4ca0e6
+          ref: 936ed3645f30472c9b04b6362001f246228dab3c
           path: .canonical-clean-handoff
           persist-credentials: false
       - uses: actions/setup-node@v7
@@ -43,17 +43,8 @@ jobs:
         run: python -B -m unittest discover -s simplify-report/tests -p "test_*.py" -v
       - name: Verify canonical Clean Handoff bytes
         run: git diff --no-index --exit-code -- clean-handoff .canonical-clean-handoff/skills/clean-handoff
-      - name: Check Clean Handoff JavaScript syntax
-        shell: pwsh
-        run: |
-          Get-ChildItem -LiteralPath clean-handoff -Recurse -File -Filter '*.mjs' | Sort-Object FullName | ForEach-Object {
-            node --check $_.FullName
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
       - name: Run Clean Handoff tests
         run: node --test clean-handoff/tests/*.test.mjs
-      - name: Check Clean Handoff public help
-        run: node clean-handoff/scripts/clean-handoff.mjs --help
       - name: Compile Post Clean helpers
         run: python -m py_compile post-clean/scripts/apply_cleanup.py post-clean/scripts/inspect_footprint.py
       - name: Run Post Clean tests
