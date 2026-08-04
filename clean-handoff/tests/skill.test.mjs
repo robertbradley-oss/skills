@@ -13,6 +13,10 @@ test("skill uses a single-workflow fast path", async () => {
   assert.match(skill, /context already present in the conversation/u);
   assert.match(skill, /Call `list_projects` once/u);
   assert.match(skill, /Call `create_thread` once/u);
+  assert.match(skill, /environment: \{ type: "local" \}/u);
+  assert.match(skill, /new task is not an implicit request for a new Git worktree/u);
+  assert.match(skill, /only when the user explicitly requests an isolated worktree/u);
+  assert.match(skill, /Never rely on an inferred `main`, `master`, or default branch/u);
   assert.match(skill, /do not wait for the new task to run/u);
   assert.match(skill, /Do not retry automatically/u);
   assert.match(skill, /Portable handoff/u);

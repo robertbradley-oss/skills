@@ -23,9 +23,11 @@ Do not include secrets, raw tool output, or speculative details. State that the 
 
 Use this route only when the user explicitly asks for a new Codex task.
 
-1. Call `list_projects` once and select the saved project whose local path matches the current workspace. Ask one concise question only if there is no unique match.
-2. Call `create_thread` once with the short handoff as its prompt. Follow the tool's environment rules and do not wait for the new task to run.
-3. Report whether creation succeeded. Do not retry automatically or create local handoff files.
+1. Call `list_projects` once. Select the saved project explicitly named by the user; otherwise select the project whose local path matches the current workspace. Ask one concise question only if there is no unique match.
+2. Continue in the selected saved project's existing workspace with `environment: { type: "local" }`. A new task is not an implicit request for a new Git worktree, and Git projects must not be switched to worktree mode merely because `isGitRepository` is true.
+3. Use `environment: { type: "worktree" }` only when the user explicitly requests an isolated worktree. Require the user to name an existing starting branch or explicitly request the selected project's current working-tree state; pass that choice as `startingState`. Never rely on an inferred `main`, `master`, or default branch.
+4. Call `create_thread` once with the short handoff as its prompt and do not wait for the new task to run.
+5. Report whether creation succeeded. Do not retry automatically or create local handoff files.
 
 ## Portable handoff
 
