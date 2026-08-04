@@ -46,6 +46,6 @@ jobs:
       - name: Run Clean Handoff tests
         run: node --test clean-handoff/tests/*.test.mjs
       - name: Compile Post Clean helpers
-        run: python -m py_compile post-clean/scripts/apply_cleanup.py post-clean/scripts/inspect_footprint.py
+        run: python -m py_compile post-clean/scripts/apply_cleanup.py post-clean/scripts/inspect_repository.py
       - name: Run Post Clean tests
         run: python -B -m unittest discover -s post-clean/tests -p "test_*.py" -v

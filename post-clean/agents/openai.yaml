@@ -1,4 +1,4 @@
 interface:
   display_name: "Post Clean"
-  short_description: "Inspect and apply approved task cleanup"
-  default_prompt: "Use $post-clean to inspect this completed task and apply only the cleanup candidates I approve."
+  short_description: "Safely inspect and remove repository residue"
+  default_prompt: "Use $post-clean to inspect the exact paths I name using current Git evidence, then apply only candidate IDs I explicitly approve."
