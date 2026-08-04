@@ -17,7 +17,7 @@ Require one or more exact workspace-relative paths named by the user. Do not inf
 
 Optionally accept one explicit Git commit, tag, or branch with `--git-base`. Resolve it to a commit during inspection. Do not guess a base, choose one by timestamp, or silently substitute a merge base.
 
-GamePlan is not an evidence source. Do not read or write task footprints. Do not update `GAMEPLAN.md`.
+Use only the user-named paths and current repository evidence described here. Do not read or update `GAMEPLAN.md`.
 
 ## Run the read-only inspection
 
@@ -93,7 +93,7 @@ Apply must:
 - Run validation again after quarantine.
 - Restore exact quarantined content on mutation, validation, or requested-report failure.
 - Preserve recovery material and report `recovery-required` when exact restoration is blocked.
-- Avoid GamePlan writes, footprint writes, staging, committing, pushing, or touching unrelated Git state.
+- Avoid staging, committing, pushing, or touching unrelated Git state.
 - Write a non-overwriting durable report only when `--report` was explicitly supplied.
 
 After Apply, report completed, restored, refused, recovery-required, and recovery-retained outcomes accurately. Targeted edits to tracked or pre-existing files are unsupported.

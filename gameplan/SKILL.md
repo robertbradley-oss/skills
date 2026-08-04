@@ -21,7 +21,7 @@ Maintain three core sections:
 - **Scope**: the products, repositories, systems, workstreams, or capabilities covered, plus meaningful exclusions.
 - **Guardrails**: only constraints or protected decisions important enough to survive across tasks.
 
-Prefer semantic boundaries over file lists. Do not add completion matrices, validation commands, phase approvals, execution slices, task footprints, evidence schemas, mandatory status categories, or cleanup contracts.
+Prefer semantic boundaries over file lists. Keep detailed specifications, test plans, task tracking, evidence, and cleanup procedures in their own artifacts when they are needed.
 
 Add Strategy, Current State, Decisions, Open Questions, or Next Move only when the user finds them useful. Omit empty sections. Preserve useful user-authored structure instead of normalizing every plan to a template.
 
@@ -35,8 +35,6 @@ When the user says to lock, save, or use a clearly stated plan:
 4. Create or patch the plan and briefly summarize what was locked.
 
 Locking records the agreement. It does not grant or revoke tool authority, require per-task approval, or make ordinary work wait for a GamePlan update.
-
-Treat a legacy `Approved Execution Slice` as historical context. On a requested plan update, fold any still-relevant objective or boundary into Scope and discard the slice lifecycle, file allowlists, validation authorization, and footprint requirements unless the user explicitly asks to retain them.
 
 ## Recall, challenge, and update
 
