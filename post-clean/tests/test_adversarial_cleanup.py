@@ -122,7 +122,7 @@ class AdversarialInspectTests(AdversarialFixture):
         real = inspect_module.is_junction
 
         def junction(path: Path) -> bool:
-            return path == self.target or real(path)
+            return path.resolve() == self.target.resolve() or real(path)
 
         with mock.patch.object(inspect_module, "is_junction", side_effect=junction):
             result = self.inspect()
