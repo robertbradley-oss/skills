@@ -99,7 +99,7 @@ Before presenting any candidate:
 - Search the repository for references to the exact path, filename, import/module name, package entry, generated output, and relevant symbols.
 - Inspect nearby source plus relevant build, package, test, CI, documentation, ignore, and configuration context.
 - Check whether a generated-looking path is an expected input, fixture, cache seed, checked deliverable, or required runtime asset.
-- Treat the inspector's literal reference check as a minimum safety gate, not a substitute for this semantic review.
+- Treat the inspector's path-aware literal reference check as a minimum safety gate, not a substitute for this semantic review.
 - Reclassify to `review` when the path may have been adopted, repurposed, indirectly required, or insufficiently explained.
 - Never promote a script `review` or `preserve` item to candidate.
 

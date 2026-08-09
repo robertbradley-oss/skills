@@ -234,6 +234,66 @@ class IgnoredGeneratedInspectTests(IgnoredGeneratedFixture):
         self.assertIsInstance(item["current"]["metadata"]["mtime_ns"], int)
         self.assertEqual(item["evidence"]["references"]["match_count"], 0)
 
+    def test_extension_and_partial_name_hits_do_not_reference_empty_tmp(self) -> None:
+        (self.workspace / "notes.md").write_text(
+            "report.tmp attempt tmp-cache tmp_data tmp.json tmpfile\n",
+            encoding="utf-8",
+        )
+        self.git("add", "notes.md")
+        self.git("commit", "-qm", "document unrelated tmp tokens")
+        (self.workspace / "tmp").mkdir()
+
+        item = self.inspect(["tmp"])["items"][0]
+
+        self.assertEqual(item["classification"], "candidate")
+        self.assertEqual(item["candidate_kind"], "empty-directory")
+        self.assertEqual(item["evidence"]["references"]["match_semantics"], "path-token")
+        self.assertEqual(item["evidence"]["references"]["match_count"], 0)
+
+    def test_exact_and_descendant_path_hits_reference_empty_tmp(self) -> None:
+        (self.workspace / "config.json").write_text(
+            '{"requiredDirectory":"tmp","cachePath":"tmp\\\\session"}\n',
+            encoding="utf-8",
+        )
+        self.git("add", "config.json")
+        self.git("commit", "-qm", "declare tmp directory")
+        (self.workspace / "tmp").mkdir()
+
+        item = self.inspect(["tmp"])["items"][0]
+
+        self.assertEqual(item["classification"], "review")
+        self.assertIsNone(item["candidate_kind"])
+        self.assertGreater(item["evidence"]["references"]["match_count"], 0)
+
+    def test_partial_repo_path_does_not_reference_generated_output(self) -> None:
+        self.create_output("src/App/bin")
+        (self.workspace / "notes.md").write_text(
+            "old-src/App/bin-copy is an unrelated label.\n",
+            encoding="utf-8",
+        )
+        self.git("add", "notes.md")
+        self.git("commit", "-qm", "document unrelated output label")
+
+        item = self.inspect(["src/App/bin"])["items"][0]
+
+        self.assertEqual(item["classification"], "candidate")
+        self.assertEqual(item["candidate_kind"], "ignored-generated")
+        self.assertEqual(item["evidence"]["references"]["match_count"], 0)
+
+    def test_windows_style_repo_path_references_generated_output(self) -> None:
+        self.create_output("src/App/bin")
+        (self.workspace / "retention.md").write_text(
+            "Retain src\\App\\bin\\generated.bin for offline support.\n",
+            encoding="utf-8",
+        )
+        self.git("add", "retention.md")
+        self.git("commit", "-qm", "document windows output path")
+
+        item = self.inspect(["src/App/bin"])["items"][0]
+
+        self.assertEqual(item["classification"], "review")
+        self.assertGreater(item["evidence"]["references"]["match_count"], 0)
+
     def test_directory_with_only_empty_descendants_is_not_an_empty_candidate(self) -> None:
         (self.workspace / "tmp" / "nested").mkdir(parents=True)
 
