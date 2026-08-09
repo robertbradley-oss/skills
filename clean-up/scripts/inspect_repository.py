@@ -357,18 +357,32 @@ def dotnet_generated_context(root: Path, path: str, absolute: Path) -> dict[str,
 
 
 def repository_reference_evidence(root: Path, path: str) -> tuple[dict[str, Any], str | None]:
-    completed = run_git(root, ["grep", "--untracked", "--full-name", "-I", "-i", "-n", "-F", "-e", path])
+    queries = [path]
+    windows_path = path.replace("/", "\\")
+    if windows_path != path:
+        queries.append(windows_path)
+    arguments = ["grep", "--untracked", "--full-name", "-I", "-i", "-n", "-F"]
+    for query in queries:
+        arguments.extend(["-e", query])
+    completed = run_git(root, arguments)
     if completed.returncode not in {0, 1}:
         return {}, decode_path(completed.stderr).strip() or "git grep failed"
+    reference_pattern = re.compile(
+        rf"(?<![A-Za-z0-9_.-]){re.escape(path)}(?![A-Za-z0-9_.-])",
+        flags=re.IGNORECASE,
+    )
     matches = []
     for raw_line in completed.stdout.splitlines():
         line = decode_path(raw_line)
-        source = line.split(":", 1)[0]
+        fields = line.split(":", 2)
+        source = fields[0]
         if PurePosixPath(source).name == ".gitignore":
             continue
-        matches.append(line)
+        if len(fields) < 3 or reference_pattern.search(fields[2]):
+            matches.append(line)
     return {
         "query": path,
+        "match_semantics": "path-token",
         "matches": matches[:20],
         "match_count": len(matches),
         "truncated": len(matches) > 20,
