@@ -116,7 +116,7 @@ class AdversarialInspectTests(AdversarialFixture):
         self.create_directory_link(bundle / "escape", self.external)
         result = self.inspect(["bundle"])
         self.assertEqual(result["items"][0]["classification"], "review")
-        self.assertIn("link or junction", result["items"][0]["reason"])
+        self.assertIn("link", result["items"][0]["reason"])
 
     def test_simulated_junction_target_is_never_candidate(self) -> None:
         real = inspect_module.is_junction

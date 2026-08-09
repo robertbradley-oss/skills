@@ -1,4 +1,4 @@
 interface:
   display_name: "Clean Up"
-  short_description: "Find and safely review repository residue"
-  default_prompt: "Use $clean-up to discover possible workspace residue, inspect only the exact paths I select, and remove nothing without my separate approval."
+  short_description: "Find and safely review cleanup candidates"
+  default_prompt: "Use $clean-up to discover possible folder or repository residue, inspect only the exact paths I select, and remove nothing without my separate approval."

@@ -59,6 +59,7 @@ class InspectRepositoryTests(GitWorkspace):
         self.assertEqual(first["provisional_authorization_set"], second["provisional_authorization_set"])
         item = first["items"][0]
         self.assertEqual(item["classification"], "candidate")
+        self.assertEqual(item["candidate_kind"], "git-new")
         self.assertEqual(item["evidence"]["worktree"]["tmp/debug.log"]["code"], "??")
         self.assertIn("not established", item["provenance_claim"])
         path.write_text("changed\n", encoding="utf-8")
@@ -97,7 +98,7 @@ class InspectRepositoryTests(GitWorkspace):
         self.assertFalse(result["apply_supported"])
         self.assertEqual(result["provisional_authorization_set"], [])
 
-    def test_reserved_absent_and_empty_directory_never_become_candidates(self) -> None:
+    def test_reserved_and_absent_paths_stay_out_while_unreferenced_empty_directory_is_candidate(self) -> None:
         (self.workspace / ".gameplan").mkdir()
         (self.workspace / ".gameplan" / "old.md").write_text("old\n", encoding="utf-8")
         (self.workspace / ".clean-up").mkdir()
@@ -114,8 +115,10 @@ class InspectRepositoryTests(GitWorkspace):
         self.assertEqual(decisions[".clean-up/current.json"], "preserve")
         self.assertEqual(decisions[".post-clean/legacy.json"], "preserve")
         self.assertEqual(decisions["missing.txt"], "preserve")
-        self.assertEqual(decisions["empty"], "review")
-        self.assertEqual(result["provisional_authorization_set"], [])
+        self.assertEqual(decisions["empty"], "candidate")
+        empty = next(item for item in result["items"] if item["path"] == "empty")
+        self.assertEqual(empty["candidate_kind"], "empty-directory")
+        self.assertEqual(result["provisional_authorization_set"], [empty["id"]])
 
 
 if __name__ == "__main__":
