@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only discovery of possible repository residue and hygiene issues."""
+"""Read-only discovery of possible folder and repository cleanup leads."""
 
 from __future__ import annotations
 
@@ -20,8 +20,9 @@ from inspect_repository import (
 )
 
 
-OUTPUT_SCHEMA = "post-clean-discovery/v1"
+OUTPUT_SCHEMA = "post-clean-discovery/v2"
 PROTECTED_BRANCHES = {"main", "master", "develop", "development", "trunk"}
+CONTROL_NAMES = {".git", ".gameplan", ".hg", ".post-clean", ".svn"}
 GENERATED_COMPONENTS = {
     ".cache", ".gradle", ".mypy_cache", ".next", ".nuxt", ".parcel-cache",
     ".pytest_cache", ".ruff_cache", ".tox", ".turbo", ".venv", "__pycache__",
@@ -32,6 +33,7 @@ TEMPORARY_SUFFIXES = {
     ".bak", ".cache", ".dmp", ".log", ".old", ".orig", ".rej", ".swp", ".temp", ".tmp",
 }
 TEMPORARY_NAMES = {".DS_Store", "Thumbs.db", "desktop.ini"}
+TEMPORARY_NAMES_LOWER = {name.lower() for name in TEMPORARY_NAMES}
 
 
 def stable_id(surface: str, target: str, signal: str, evidence: dict[str, Any]) -> str:
@@ -44,6 +46,16 @@ def stable_id(surface: str, target: str, signal: str, evidence: dict[str, Any]) 
 
 def warning(code: str, message: str) -> dict[str, str]:
     return {"code": code, "message": message}
+
+
+def markdown_cell(value: Any) -> str:
+    return (
+        str(value)
+        .replace("`", "'")
+        .replace("\r", " ")
+        .replace("\n", " ")
+        .replace("|", "\\|")
+    )
 
 
 def run_git_values(root: Path, arguments: list[str]) -> tuple[list[str], str | None]:
@@ -126,7 +138,7 @@ def path_signal(path: str, ignored: bool) -> tuple[str, str, str]:
     name = PurePosixPath(path).name
     suffix = PurePosixPath(path).suffix.lower()
     generated = any(part in GENERATED_COMPONENTS for part in parts)
-    temporary = name in TEMPORARY_NAMES or suffix in TEMPORARY_SUFFIXES
+    temporary = name.lower() in TEMPORARY_NAMES_LOWER or suffix in TEMPORARY_SUFFIXES
     if generated:
         return (
             "generated-residue",
@@ -154,6 +166,13 @@ def add_lead(
     leads: list[dict[str, Any]], surface: str, target: str, signal: str,
     confidence: str, reason: str, evidence: dict[str, Any],
 ) -> None:
+    if any(
+        item["surface"] == surface
+        and item["target"] == target
+        and item["signal"] == signal
+        for item in leads
+    ):
+        return
     leads.append({
         "id": stable_id(surface, target, signal, evidence),
         "surface": surface,
@@ -166,6 +185,153 @@ def add_lead(
         "evidence": evidence,
         "provenance_claim": "Discovery evidence only; task provenance and disposability are not established.",
     })
+
+
+def sha256_path(path: Path, expected_size: int) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        if os.fstat(handle.fileno()).st_size != expected_size:
+            raise OSError("file size changed before hashing")
+        remaining = expected_size
+        while remaining:
+            chunk = handle.read(min(1024 * 1024, remaining))
+            if not chunk:
+                raise OSError("file became shorter while hashing")
+            digest.update(chunk)
+            remaining -= len(chunk)
+        if os.fstat(handle.fileno()).st_size != expected_size:
+            raise OSError("file size changed while hashing")
+    return digest.hexdigest()
+
+
+def discover_filesystem_leads(
+    root: Path, leads: list[dict[str, Any]], warnings: list[dict[str, str]],
+    max_files: int, max_hash_bytes: int,
+) -> dict[str, Any]:
+    files_by_size: dict[int, list[str]] = {}
+    directories = 0
+    files = 0
+    links_skipped = 0
+    control_paths_skipped = 0
+    generated_roots = 0
+    temporary_files = 0
+    scan_truncated = False
+    stack = [root]
+
+    while stack:
+        directory = stack.pop()
+        try:
+            with os.scandir(directory) as iterator:
+                entries = sorted(iterator, key=lambda item: item.name)
+        except OSError as exc:
+            warnings.append(warning("filesystem-scan-failed", f"{directory}: {exc}"))
+            continue
+
+        child_directories: list[Path] = []
+        for entry in entries:
+            path = Path(entry.path)
+            relative = path.relative_to(root).as_posix()
+            if entry.name.lower() in CONTROL_NAMES:
+                control_paths_skipped += 1
+                continue
+            if entry.is_symlink() or is_junction(path):
+                links_skipped += 1
+                continue
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    directories += 1
+                    if entry.name.lower() in GENERATED_COMPONENTS:
+                        generated_roots += 1
+                        add_lead(
+                            leads, "path", relative, "generated-residue", "moderate",
+                            "The directory name matches a common generated, build, cache, package, or release-output location.",
+                            {"source": "filesystem", "footprint": summarize_path(root, relative)},
+                        )
+                    else:
+                        child_directories.append(path)
+                elif entry.is_file(follow_symlinks=False):
+                    if files >= max_files:
+                        scan_truncated = True
+                        break
+                    files += 1
+                    stat = entry.stat(follow_symlinks=False)
+                    name = entry.name
+                    suffix = Path(name).suffix.lower()
+                    if name.lower() in TEMPORARY_NAMES_LOWER or suffix in TEMPORARY_SUFFIXES:
+                        temporary_files += 1
+                        add_lead(
+                            leads, "path", relative, "temporary-file", "moderate",
+                            "The filename matches a common temporary, backup, log, dump, or editor-residue pattern.",
+                            {
+                                "source": "filesystem",
+                                "footprint": {
+                                    "type": "file", "files": 1, "directories": 0,
+                                    "bytes": stat.st_size, "truncated": False,
+                                },
+                            },
+                        )
+                    elif stat.st_size > 0:
+                        files_by_size.setdefault(stat.st_size, []).append(relative)
+            except OSError as exc:
+                warnings.append(warning("filesystem-entry-failed", f"{relative}: {exc}"))
+        if scan_truncated:
+            break
+        stack.extend(reversed(child_directories))
+
+    hashed_bytes = 0
+    hash_budget_exhausted = False
+    duplicate_sets = 0
+    duplicate_files = 0
+    for size, paths in sorted(files_by_size.items()):
+        if len(paths) < 2:
+            continue
+        by_digest: dict[str, list[str]] = {}
+        for relative in sorted(paths):
+            if hashed_bytes + size > max_hash_bytes:
+                hash_budget_exhausted = True
+                continue
+            path = root.joinpath(*PurePosixPath(relative).parts)
+            try:
+                digest = sha256_path(path, size)
+            except OSError as exc:
+                warnings.append(warning("duplicate-hash-failed", f"{relative}: {exc}"))
+                continue
+            hashed_bytes += size
+            by_digest.setdefault(digest, []).append(relative)
+        for digest, duplicates in sorted(by_digest.items()):
+            if len(duplicates) < 2:
+                continue
+            ordered = sorted(duplicates)
+            duplicate_sets += 1
+            duplicate_files += len(ordered)
+            add_lead(
+                leads,
+                "duplicate-set",
+                f"{len(ordered)} files with SHA-256 {digest[:12]}",
+                "exact-duplicate",
+                "strong",
+                "These files are byte-identical. Their locations, references, and intent must be reviewed before choosing any path for inspection.",
+                {
+                    "sha256": digest,
+                    "bytes_each": size,
+                    "total_bytes": size * len(ordered),
+                    "paths": ordered,
+                },
+            )
+
+    return {
+        "filesystem_directories": directories,
+        "filesystem_files": files,
+        "filesystem_links_skipped": links_skipped,
+        "filesystem_control_paths_skipped": control_paths_skipped,
+        "filesystem_generated_roots": generated_roots,
+        "filesystem_temporary_files": temporary_files,
+        "filesystem_scan_truncated": scan_truncated,
+        "duplicate_sets": duplicate_sets,
+        "duplicate_files": duplicate_files,
+        "duplicate_hashed_bytes": hashed_bytes,
+        "duplicate_hash_budget_exhausted": hash_budget_exhausted,
+    }
 
 
 def discover_path_leads(
@@ -323,12 +489,19 @@ def discover_integrity_lead(root: Path, leads: list[dict[str, Any]], max_leads: 
     return 1
 
 
-def discover(workspace: Path, git_base: str | None, max_leads: int) -> dict[str, Any]:
+def discover(
+    workspace: Path, git_base: str | None, max_leads: int,
+    max_files: int = 50000, max_hash_bytes: int = 1024 * 1024 * 1024,
+) -> dict[str, Any]:
     root = workspace.resolve(strict=True)
     if not root.is_dir():
         raise ValueError("Workspace root must be a directory")
     if max_leads <= 0:
         raise ValueError("max-leads must be positive")
+    if max_files <= 0:
+        raise ValueError("max-files must be positive")
+    if max_hash_bytes <= 0:
+        raise ValueError("max-hash-bytes must be positive")
 
     git, refusals = repository_evidence(root, git_base)
     result: dict[str, Any] = {
@@ -337,6 +510,7 @@ def discover(workspace: Path, git_base: str | None, max_leads: int) -> dict[str,
         "mutations_performed": False,
         "apply_supported": False,
         "workspace": str(root),
+        "scope_type": "git-repository" if git.get("available") else "folder",
         "git": git,
         "summary": {},
         "leads": [],
@@ -344,17 +518,27 @@ def discover(workspace: Path, git_base: str | None, max_leads: int) -> dict[str,
         "warnings": list(refusals),
         "review_required": True,
     }
-    if not git.get("available"):
-        return result
-
     leads: list[dict[str, Any]] = result["leads"]
     summary: dict[str, Any] = result["summary"]
-    summary.update(discover_path_leads(root, leads, result["warnings"], max_leads))
-    summary.update(discover_branch_leads(root, leads, result["warnings"], max_leads))
-    summary.update(discover_worktree_leads(root, leads, result["warnings"], max_leads))
-    summary["git_reference_errors"] = discover_integrity_lead(root, leads, max_leads)
-    summary["tracked_worktree_changes"] = sum(1 for item in git.get("status", {}).values() if item.get("code") != "??")
-    priority = {"repository": 0, "worktree": 1, "branch": 2, "path": 3}
+    if git.get("available"):
+        summary.update(discover_path_leads(root, leads, result["warnings"], max_leads))
+        summary.update(discover_branch_leads(root, leads, result["warnings"], max_leads))
+        summary.update(discover_worktree_leads(root, leads, result["warnings"], max_leads))
+        summary["git_reference_errors"] = discover_integrity_lead(root, leads, max_leads)
+        summary["tracked_worktree_changes"] = sum(
+            1 for item in git.get("status", {}).values() if item.get("code") != "??"
+        )
+    else:
+        summary.update({
+            "untracked_roots": 0, "ignored_roots": 0, "local_branches": 0,
+            "stale_upstreams": 0, "merged_review_branches": 0, "linked_worktrees": 0,
+            "additional_worktrees": 0, "prunable_worktrees": 0,
+            "git_reference_errors": 0, "tracked_worktree_changes": 0,
+        })
+    summary.update(discover_filesystem_leads(
+        root, leads, result["warnings"], max_files, max_hash_bytes,
+    ))
+    priority = {"repository": 0, "worktree": 1, "branch": 2, "path": 3, "duplicate-set": 4}
     leads.sort(key=lambda item: (priority.get(item["surface"], 9), item["signal"], item["target"]))
     summary["lead_count_total"] = len(leads)
     if len(leads) > max_leads:
@@ -386,6 +570,8 @@ def evidence_text(lead: dict[str, Any]) -> str:
         return f"branch {branch}"
     if lead["surface"] == "repository":
         return f"git exit {evidence.get('exit_code', 'unknown')}"
+    if lead["surface"] == "duplicate-set":
+        return f"{len(evidence.get('paths', []))} files; {evidence.get('bytes_each', 0)} bytes each"
     return "unknown"
 
 
@@ -397,29 +583,37 @@ def render_markdown(result: dict[str, Any]) -> str:
         "|---|---|---|---|---|---|",
     ]
     for lead in result["leads"]:
-        target = str(lead["target"]).replace("|", "\\|")
-        footprint = evidence_text(lead)
+        target = markdown_cell(lead["target"])
+        footprint = markdown_cell(evidence_text(lead))
         lines.append(
-            f"| `{lead['id']}` | `{lead['surface']}` | `{target}` | `{lead['signal']}` | "
-            f"`{lead['confidence']}` | {footprint} |"
+            f"| `{lead['id']}` | `{markdown_cell(lead['surface'])}` | `{target}` | "
+            f"`{markdown_cell(lead['signal'])}` | `{markdown_cell(lead['confidence'])}` | {footprint} |"
         )
     if not result["leads"]:
         lines.append("| - | - | - | - | - | No cleanup leads found. |")
     lines.extend([
         "", "Discovery leads are review prompts, not cleanup candidates or authorization.",
-        "Select exact path leads for a separate Inspect pass. Branch, worktree, and repository leads require their own explicit workflow.",
+        "Select exact Git-root path leads for a separate Inspect pass. Folder-only, duplicate-set, branch, worktree, and repository leads remain review-only.",
     ])
     if result["warnings"]:
         lines.extend(["", "Warnings:"])
-        lines.extend(f"- {item['code']}: {item['message']}" for item in result["warnings"])
+        lines.extend(
+            f"- {markdown_cell(item['code'])}: {markdown_cell(item['message'])}"
+            for item in result["warnings"]
+        )
     return "\n".join(lines) + "\n"
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--workspace", required=True, help="Workspace Git root")
+    parser.add_argument("--workspace", required=True, help="Folder, workspace, or Git repository root")
     parser.add_argument("--git-base", help="Optional explicit commit, tag, or branch for context")
     parser.add_argument("--max-leads", type=int, default=200, help="Bound the number of discovery leads")
+    parser.add_argument("--max-files", type=int, default=50000, help="Bound filesystem files examined")
+    parser.add_argument(
+        "--max-hash-bytes", type=int, default=1024 * 1024 * 1024,
+        help="Bound total bytes read for exact-duplicate hashing",
+    )
     parser.add_argument("--format", choices=("json", "markdown"), default="json")
     return parser
 
@@ -427,7 +621,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        result = discover(Path(args.workspace), args.git_base, args.max_leads)
+        result = discover(
+            Path(args.workspace), args.git_base, args.max_leads,
+            args.max_files, args.max_hash_bytes,
+        )
     except (OSError, ValueError) as exc:
         print(json.dumps({"schema": OUTPUT_SCHEMA, "error": str(exc)}, indent=2))
         return 1

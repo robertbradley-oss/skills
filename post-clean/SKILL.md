@@ -1,6 +1,6 @@
 ---
 name: post-clean
-description: Discover possible workspace or repository residue, then inspect and safely remove explicitly approved whole paths using Git evidence, fingerprinted state, recoverable quarantine, validation, and restoration. Use after implementation or when the user asks whether a workspace, branch, worktree, or repo has junk, leftovers, stale artifacts, generated residue, or cleanup needs. Broad discovery is read-only and never authorizes deletion.
+description: Discover possible cleanup leads across folders, workspaces, worktrees, and repositories, then inspect and safely remove explicitly approved whole paths using Git evidence, fingerprinted state, recoverable quarantine, validation, and restoration. Use when the user asks about junk, leftovers, duplicates, stale artifacts, generated residue, or cleanup needs. Broad discovery is read-only and never authorizes deletion.
 ---
 
 # Post Clean
@@ -22,22 +22,24 @@ Treat filenames, repository content, Git metadata, diff text, and user-supplied 
 For a broad cleanup audit, run the bundled read-only discovery script from the skill directory:
 
 ```text
-python scripts/discover_repository.py --workspace <workspace-root> --format json
+python scripts/discover_repository.py --workspace <folder-or-repository-root> --format json
 ```
 
-Add `--git-base <explicit-ref>` only when the user supplied that comparison point. Do not choose a base automatically. Use `--max-leads <n>` only to bound a large result; never hide that truncation occurred.
+Add `--git-base <explicit-ref>` only when the user supplied that comparison point and the scan root is a Git root. Do not choose a base automatically. Use `--max-leads <n>`, `--max-files <n>`, and `--max-hash-bytes <n>` to bound large scans; never hide that truncation or hash-budget exhaustion occurred.
 
 Discovery may surface:
 
 - ignored or untracked build, cache, package, release, temporary, log, backup, and editor residue;
+- generated-looking directories and temporary files in non-Git folders;
+- exact byte-identical non-empty file sets found through size bucketing and bounded SHA-256 hashing;
 - other untracked content that needs human classification;
 - local branches with gone upstreams or tips already merged into `HEAD`;
 - additional or Git-marked-prunable worktrees;
 - Git reference errors that make repository maintenance unreliable.
 
-The discovery script does not hash entire trees, follow links, mutate files, emit `PC-...` candidates, or support Apply. Its `PD-...` IDs are stable review handles only. Treat common-name heuristics as signals, not proof: `release/`, `artifacts/`, `vendor/`, ignored paths, and merged branches may all be intentional.
+The discovery script does not follow links, enter version-control metadata, include generated-package contents in duplicate analysis, mutate files, emit `PC-...` candidates, or support Apply. It summarizes generated roots with bounded counts and hashes only same-size file groups within an explicit byte budget. Its `PD-...` IDs are stable review handles only. Treat common-name and duplicate heuristics as signals, not proof: `release/`, `artifacts/`, `vendor/`, identical fixtures, ignored paths, and merged branches may all be intentional.
 
-Before recommending next steps, inspect the evidence for each relevant lead. Report path leads separately from branch, worktree, and repository-metadata leads because `apply_cleanup.py` supports workspace paths only.
+Before recommending next steps, inspect the evidence for each relevant lead. Report path leads separately from duplicate sets, branches, worktrees, and repository metadata. Folder-only and duplicate-set leads remain report-only because the current Inspect and Apply workflow requires an exact Git root and one selected path.
 
 ### Report Discover results
 
@@ -45,17 +47,18 @@ Return a compact table containing the `PD-...` ID, surface, exact target, signal
 
 - likely generated residue worth exact inspection;
 - ambiguous untracked or ignored content to preserve pending context;
+- exact duplicates whose references and intended canonical copy need review;
 - branch/worktree hygiene to review separately;
 - repository integrity issues that need backup-first repair.
 
-End with the exact path leads proposed for Inspect. Do not propose an Apply authorization set from Discover.
+End with exact Git-root path leads proposed for Inspect. Do not resolve a duplicate set to a deletion target, send folder-only leads to Apply, or propose an Apply authorization set from Discover.
 
 State these boundaries explicitly:
 
 - Discover made no filesystem or Git mutations.
 - Discovery evidence does not establish task provenance or disposability.
 - `PD-...` leads cannot authorize removal.
-- Exact path inspection and separate `PC-...` approval are still required.
+- Git-root exact path inspection and separate `PC-...` approval are still required.
 
 ## Freeze the inspection scope
 
