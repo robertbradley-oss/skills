@@ -1,4 +1,0 @@
-interface:
-  display_name: "Post Clean"
-  short_description: "Find and safely review repository residue"
-  default_prompt: "Use $post-clean to discover possible workspace residue, inspect only the exact paths I select, and remove nothing without my separate approval."

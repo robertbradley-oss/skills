@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPTS = ROOT / "post-clean" / "scripts"
+SCRIPTS = ROOT / "clean-up" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import apply_cleanup as apply_module
@@ -53,18 +53,19 @@ class ApplyCleanupTests(unittest.TestCase):
     def test_success_removes_exact_path_without_default_report(self) -> None:
         result, exit_code = self.apply(self.candidate_id())
         self.assertEqual(exit_code, 0)
+        self.assertEqual(result["schema"], "clean-up-apply/v2")
         self.assertEqual(result["status"], "completed")
         self.assertFalse(self.path.exists())
         self.assertIsNone(result["report"])
-        self.assertFalse((self.workspace / ".post-clean").exists())
+        self.assertFalse((self.workspace / ".clean-up").exists())
         self.assertEqual(result["recovery"]["status"], "discarded")
 
     def test_optional_report_is_non_overwriting_and_outside_gameplan(self) -> None:
-        report = ".post-clean/reports/run.json"
+        report = ".clean-up/reports/run.json"
         result, exit_code = self.apply(self.candidate_id(), report=report)
         self.assertEqual(exit_code, 0)
         document = json.loads((self.workspace / report).read_text(encoding="utf-8"))
-        self.assertEqual(document["schema"], "post-clean-report/v2")
+        self.assertEqual(document["schema"], "clean-up-report/v2")
         self.assertEqual(document["recovery"]["status"], "discarded")
         self.assertFalse((self.workspace / ".gameplan").exists())
         self.assertEqual(result["report"], report)

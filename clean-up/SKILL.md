@@ -1,9 +1,9 @@
 ---
-name: post-clean
+name: clean-up
 description: Discover possible cleanup leads across folders, workspaces, worktrees, and repositories, then inspect and safely remove explicitly approved whole paths using Git evidence, fingerprinted state, recoverable quarantine, validation, and restoration. Use when the user asks about junk, leftovers, duplicates, stale artifacts, generated residue, or cleanup needs. Broad discovery is read-only and never authorizes deletion.
 ---
 
-# Post Clean
+# Clean Up
 
 Work in three separate modes: **Discover**, **Inspect**, and **Apply**.
 
@@ -123,10 +123,10 @@ python scripts/apply_cleanup.py \
 
 Repeat `--path`, `--approve`, and `--validate-command` as needed. Add the same `--git-base` when inspection used one. Never approve `all`, a glob, directory shorthand, a review item, or an ID from another inspection.
 
-Durable reports are optional. To request one, add an explicit new JSON path under `.post-clean/reports/`:
+Durable reports are optional. To request one, add an explicit new JSON path under `.clean-up/reports/`:
 
 ```text
---report .post-clean/reports/cleanup-2026-08-03.json
+--report .clean-up/reports/cleanup-2026-08-03.json
 ```
 
 In Windows PowerShell 5.1, put `--%` immediately after `python` and escape each JSON quote so native argument parsing preserves it:

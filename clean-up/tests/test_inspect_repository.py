@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "post-clean" / "scripts" / "inspect_repository.py"
+SCRIPT = ROOT / "clean-up" / "scripts" / "inspect_repository.py"
 
 
 class GitWorkspace(unittest.TestCase):
@@ -18,8 +18,8 @@ class GitWorkspace(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.workspace = Path(self.temporary.name)
         self.git("init", "-q")
-        self.git("config", "user.email", "post-clean@example.invalid")
-        self.git("config", "user.name", "Post Clean Tests")
+        self.git("config", "user.email", "clean-up@example.invalid")
+        self.git("config", "user.name", "Clean Up Tests")
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -54,6 +54,7 @@ class InspectRepositoryTests(GitWorkspace):
         first = self.inspect(["tmp/debug.log"])
         second = self.inspect(["tmp/debug.log"])
 
+        self.assertEqual(first["schema"], "clean-up-inspection/v2")
         self.assertFalse(first["mutations_performed"])
         self.assertEqual(first["provisional_authorization_set"], second["provisional_authorization_set"])
         item = first["items"][0]
@@ -99,10 +100,19 @@ class InspectRepositoryTests(GitWorkspace):
     def test_reserved_absent_and_empty_directory_never_become_candidates(self) -> None:
         (self.workspace / ".gameplan").mkdir()
         (self.workspace / ".gameplan" / "old.md").write_text("old\n", encoding="utf-8")
+        (self.workspace / ".clean-up").mkdir()
+        (self.workspace / ".clean-up" / "current.json").write_text("{}\n", encoding="utf-8")
+        (self.workspace / ".post-clean").mkdir()
+        (self.workspace / ".post-clean" / "legacy.json").write_text("{}\n", encoding="utf-8")
         (self.workspace / "empty").mkdir()
-        result = self.inspect([".gameplan/old.md", "missing.txt", "empty"])
+        result = self.inspect([
+            ".gameplan/old.md", ".clean-up/current.json", ".post-clean/legacy.json",
+            "missing.txt", "empty",
+        ])
         decisions = {item["path"]: item["classification"] for item in result["items"]}
         self.assertEqual(decisions[".gameplan/old.md"], "preserve")
+        self.assertEqual(decisions[".clean-up/current.json"], "preserve")
+        self.assertEqual(decisions[".post-clean/legacy.json"], "preserve")
         self.assertEqual(decisions["missing.txt"], "preserve")
         self.assertEqual(decisions["empty"], "review")
         self.assertEqual(result["provisional_authorization_set"], [])

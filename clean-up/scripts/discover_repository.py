@@ -20,9 +20,9 @@ from inspect_repository import (
 )
 
 
-OUTPUT_SCHEMA = "post-clean-discovery/v2"
+OUTPUT_SCHEMA = "clean-up-discovery/v2"
 PROTECTED_BRANCHES = {"main", "master", "develop", "development", "trunk"}
-CONTROL_NAMES = {".git", ".gameplan", ".hg", ".post-clean", ".svn"}
+CONTROL_NAMES = {".clean-up", ".git", ".gameplan", ".hg", ".post-clean", ".svn"}
 GENERATED_COMPONENTS = {
     ".cache", ".gradle", ".mypy_cache", ".next", ".nuxt", ".parcel-cache",
     ".pytest_cache", ".ruff_cache", ".tox", ".turbo", ".venv", "__pycache__",
@@ -577,7 +577,7 @@ def evidence_text(lead: dict[str, Any]) -> str:
 
 def render_markdown(result: dict[str, Any]) -> str:
     lines = [
-        "# Post Clean discovery", "", f"Workspace: `{result['workspace']}`", "Mutations: `none`",
+        "# Clean Up discovery", "", f"Workspace: `{result['workspace']}`", "Mutations: `none`",
         "Apply supported from discovery: `no`", "",
         "| ID | Surface | Target | Signal | Confidence | Evidence |",
         "|---|---|---|---|---|---|",
