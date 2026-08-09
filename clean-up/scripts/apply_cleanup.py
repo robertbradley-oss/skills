@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply explicitly approved Post Clean v2 whole-path candidates."""
+"""Apply explicitly approved Clean Up v2 whole-path candidates."""
 
 from __future__ import annotations
 
@@ -29,8 +29,8 @@ from inspect_repository import (
 )
 
 
-APPLY_SCHEMA = "post-clean-apply/v2"
-REPORT_SCHEMA = "post-clean-report/v2"
+APPLY_SCHEMA = "clean-up-apply/v2"
+REPORT_SCHEMA = "clean-up-report/v2"
 ID_PATTERN = re.compile(r"^PC-[A-F0-9]{12}$")
 
 
@@ -40,7 +40,7 @@ def utc_now() -> str:
 
 def atomic_write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(prefix=".post-clean-", suffix=".tmp", dir=str(path.parent))
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".clean-up-", suffix=".tmp", dir=str(path.parent))
     temporary = Path(temporary_name)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
@@ -125,7 +125,7 @@ def create_recovery_root(workspace: Path, run_key: str) -> tuple[Path, tuple[int
     parent = workspace.parent.resolve(strict=True)
     if parent.is_symlink() or is_junction(parent):
         raise ValueError("Workspace parent cannot be a link or junction")
-    created = Path(tempfile.mkdtemp(prefix=f".post-clean-{run_key}-", dir=str(parent)))
+    created = Path(tempfile.mkdtemp(prefix=f".clean-up-{run_key}-", dir=str(parent)))
     try:
         if os.path.commonpath([str(workspace), str(created)]) == str(workspace):
             raise ValueError("Recovery directory resolved inside the workspace")
@@ -275,10 +275,10 @@ def resolve_report_path(workspace: Path, value: str | None, selected: list[dict[
     normalized, error = normalize_relative_path(value)
     if error or normalized is None:
         return None, [{"code": "report-path-invalid", "message": error or "Invalid report path"}]
-    if not normalized.startswith(".post-clean/reports/") or not normalized.endswith(".json"):
+    if not normalized.startswith(".clean-up/reports/") or not normalized.endswith(".json"):
         return None, [{
             "code": "report-path-invalid",
-            "message": "Reports must be explicit .json paths under .post-clean/reports/",
+            "message": "Reports must be explicit .json paths under .clean-up/reports/",
         }]
     path, error = lexical_path(workspace, normalized)
     if error or path is None:
@@ -376,24 +376,24 @@ def apply_cleanup(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             "id": item["id"], "path": item["path"], "outcome": "removed",
             "detail": "Moved to same-filesystem quarantine pending validation.",
         } for item in selected]
-        post_results, post_ok = run_validation(workspace, commands, "post-clean", args.validation_timeout)
+        post_results, post_ok = run_validation(workspace, commands, "after-cleanup", args.validation_timeout)
         result["validation"].extend(post_results)
         if not post_ok:
-            raise RuntimeError("Post-clean validation did not pass")
+            raise RuntimeError("After-cleanup validation did not pass")
         reappeared = [
             mapping["relative"] for mapping in mappings
             if os.path.lexists(mapping["original"])
         ]
         if reappeared:
             raise RuntimeError(
-                "Cleanup target reappeared during post-clean validation: " + ", ".join(reappeared)
+                "Cleanup target reappeared during after-cleanup validation: " + ", ".join(reappeared)
             )
         post_state = inspect(workspace, list(args.path), args.git_base)
         if (
             post_state["git"].get("head") != refreshed["git"].get("head")
             or post_state["git"].get("base_commit") != refreshed["git"].get("base_commit")
         ):
-            raise RuntimeError("HEAD or the explicit Git base changed during post-clean validation")
+            raise RuntimeError("HEAD or the explicit Git base changed during after-cleanup validation")
         result["status"] = "completed"
         result["completed"] = utc_now()
         if not try_write_report(report, result):
@@ -457,7 +457,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--approve", action="append", required=True, help="Approved PC candidate ID")
     parser.add_argument("--validate-command", action="append", required=True, help="Validation command as a JSON argument array")
     parser.add_argument("--validation-timeout", type=int, default=600)
-    parser.add_argument("--report", help="Optional non-existing .post-clean/reports/*.json path")
+    parser.add_argument("--report", help="Optional non-existing .clean-up/reports/*.json path")
     return parser
 
 

@@ -26,8 +26,8 @@ class DiscoverRepositoryTests(unittest.TestCase):
         root = parent / "repo"
         root.mkdir()
         self.git(root, "init", "-b", "main")
-        self.git(root, "config", "user.name", "Post Clean Test")
-        self.git(root, "config", "user.email", "post-clean@example.invalid")
+        self.git(root, "config", "user.name", "Clean Up Test")
+        self.git(root, "config", "user.email", "clean-up@example.invalid")
         (root / ".gitignore").write_text("bin/\n", encoding="utf-8")
         (root / "tracked.txt").write_text("tracked\n", encoding="utf-8")
         self.git(root, "add", ".gitignore", "tracked.txt")
@@ -46,6 +46,7 @@ class DiscoverRepositoryTests(unittest.TestCase):
             result = discover(root, None, 50)
             targets = {(lead["surface"], lead["target"]): lead for lead in result["leads"]}
 
+            self.assertEqual(result["schema"], "clean-up-discovery/v2")
             self.assertFalse(result["mutations_performed"])
             self.assertFalse(result["apply_supported"])
             self.assertEqual(result["provisional_authorization_set"], [])
@@ -116,9 +117,13 @@ class DiscoverRepositoryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / ".git" / "objects").mkdir(parents=True)
+            (root / ".clean-up" / "reports").mkdir(parents=True)
+            (root / ".post-clean" / "reports").mkdir(parents=True)
             (root / "node_modules" / "package").mkdir(parents=True)
             (root / "visible.txt").write_bytes(b"duplicate")
             (root / ".git" / "objects" / "hidden.txt").write_bytes(b"duplicate")
+            (root / ".clean-up" / "reports" / "current.json").write_bytes(b"duplicate")
+            (root / ".post-clean" / "reports" / "legacy.json").write_bytes(b"duplicate")
             (root / "node_modules" / "package" / "vendored.txt").write_bytes(b"duplicate")
 
             result = discover(root, None, 50)
@@ -133,7 +138,7 @@ class DiscoverRepositoryTests(unittest.TestCase):
                 ("path", "node_modules"),
                 {(lead["surface"], lead["target"]) for lead in result["leads"]},
             )
-            self.assertGreaterEqual(result["summary"]["filesystem_control_paths_skipped"], 1)
+            self.assertGreaterEqual(result["summary"]["filesystem_control_paths_skipped"], 3)
 
     def test_filesystem_and_hash_budgets_are_reported(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

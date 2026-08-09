@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SKILL = ROOT / "post-clean" / "SKILL.md"
+SKILL = ROOT / "clean-up" / "SKILL.md"
 
 
 class PowerShellDocumentationTests(unittest.TestCase):

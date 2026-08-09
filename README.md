@@ -11,11 +11,11 @@ no plugin or marketplace packaging. Repository-wide automation lives under
 | --- | --- | --- |
 | Clean Handoff | Create trustworthy project handoffs for fresh Codex tasks. | [`clean-handoff/`](clean-handoff/) |
 | GamePlan | Preserve strategic continuity and control approved execution slices. | [`gameplan/`](gameplan/) |
-| Post Clean | Discover cleanup leads across folders and repositories, then apply only approved, recoverable Git-root cleanup. | [`post-clean/`](post-clean/) |
+| Clean Up | Discover cleanup leads across folders and repositories, then apply only approved, recoverable Git-root cleanup. | [`clean-up/`](clean-up/) |
 | Simplify | Explain technical reports in everyday language without changing their conclusions. | [`simplify-report/`](simplify-report/) |
 
 Install any package with Codex's `$skill-installer` using this repository and
-the package path `clean-handoff`, `gameplan`, `post-clean`, or
+the package path `clean-handoff`, `clean-up`, `gameplan`, or
 `simplify-report`. Start a new Codex task after installation so the skill
 catalog refreshes.
 
@@ -24,5 +24,5 @@ catalog refreshes.
 The shared validation workflow under [`.github/workflows/`](.github/workflows/)
 checks all four skill packages on Windows, macOS, and Linux, verifies Clean
 Handoff against its locked canonical source, runs its syntax and test gates,
-compiles the Post Clean helpers, and runs the package-local Post Clean and
+compiles the Clean Up helpers, and runs the package-local Clean Up and
 Simplify test suites.

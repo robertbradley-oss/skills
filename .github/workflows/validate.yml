@@ -45,7 +45,7 @@ jobs:
         run: git diff --no-index --exit-code -- clean-handoff .canonical-clean-handoff/skills/clean-handoff
       - name: Run Clean Handoff tests
         run: node --test clean-handoff/tests/*.test.mjs
-      - name: Compile Post Clean helpers
-        run: python -m py_compile post-clean/scripts/apply_cleanup.py post-clean/scripts/inspect_repository.py
-      - name: Run Post Clean tests
-        run: python -B -m unittest discover -s post-clean/tests -p "test_*.py" -v
+      - name: Compile Clean Up helpers
+        run: python -m py_compile clean-up/scripts/apply_cleanup.py clean-up/scripts/discover_repository.py clean-up/scripts/inspect_repository.py
+      - name: Run Clean Up tests
+        run: python -B -m unittest discover -s clean-up/tests -p "test_*.py" -v

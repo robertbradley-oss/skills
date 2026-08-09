@@ -13,7 +13,7 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPTS = ROOT / "post-clean" / "scripts"
+SCRIPTS = ROOT / "clean-up" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import apply_cleanup as apply_module
@@ -46,7 +46,7 @@ class AdversarialFixture(unittest.TestCase):
             if recovery.exists():
                 resolved = recovery.resolve()
                 self.assertEqual(resolved.parent, self.workspace.parent.resolve())
-                self.assertTrue(resolved.name.startswith(".post-clean-"))
+                self.assertTrue(resolved.name.startswith(".clean-up-"))
                 shutil.rmtree(resolved)
         self.temporary.cleanup()
         self.external_temporary.cleanup()
@@ -142,7 +142,7 @@ class AdversarialApplyTests(AdversarialFixture):
     def test_requested_report_failure_restores_target(self) -> None:
         with mock.patch.object(apply_module, "atomic_write_json", side_effect=OSError("induced")):
             result, exit_code = self.apply(
-                self.candidate_id(), report=".post-clean/reports/run.json"
+                self.candidate_id(), report=".clean-up/reports/run.json"
             )
         self.assertEqual(exit_code, 2)
         self.assertEqual(result["status"], "restored")

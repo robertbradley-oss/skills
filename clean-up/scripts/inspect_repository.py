@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only Post Clean inspection from explicit paths and current Git evidence."""
+"""Read-only Clean Up inspection from explicit paths and current Git evidence."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 
-OUTPUT_SCHEMA = "post-clean-inspection/v2"
-RESERVED_EXACT_PATHS = {".git", ".gameplan", ".post-clean", "GAMEPLAN.md"}
+OUTPUT_SCHEMA = "clean-up-inspection/v2"
+RESERVED_EXACT_PATHS = {".clean-up", ".git", ".gameplan", ".post-clean", "GAMEPLAN.md"}
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -342,7 +342,7 @@ def inspect(workspace: Path, requested_paths: list[str], git_base: str | None) -
             except OSError as exc:
                 current = {"type": "unreadable", "error": str(exc)}
             if is_reserved_path(path):
-                classification, reason, evidence = "preserve", "Post Clean control and planning paths are reserved", {}
+                classification, reason, evidence = "preserve", "Clean Up control and planning paths are reserved", {}
             elif target_outside_workspace(root, absolute) or has_link_ancestor(root, absolute):
                 classification, reason, evidence = "review", "Path uses a link/junction or resolves outside the workspace", {}
             else:
@@ -370,7 +370,7 @@ def fingerprint_summary(current: dict[str, Any]) -> str:
 
 def render_markdown(result: dict[str, Any]) -> str:
     lines = [
-        "# Post Clean inspection", "", f"Paths: `{', '.join(result['scope']['paths']) or 'none'}`",
+        "# Clean Up inspection", "", f"Paths: `{', '.join(result['scope']['paths']) or 'none'}`",
         f"Git base: `{result['git'].get('base_commit') or 'none'}`", "Mutations: `none`", "",
         "| ID | Path | Decision | Action | Fingerprint | Reason |", "|---|---|---|---|---|---|",
     ]
