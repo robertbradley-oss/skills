@@ -17,6 +17,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from inspect_repository import (
+    AMBIGUOUS_EMPTY_NAMES,
     fingerprint_path,
     fingerprint_token,
     has_link_ancestor,
@@ -32,6 +33,7 @@ from inspect_repository import (
 APPLY_SCHEMA = "clean-up-apply/v2"
 REPORT_SCHEMA = "clean-up-report/v2"
 ID_PATTERN = re.compile(r"^PC-[A-F0-9]{12}$")
+SUPPORTED_CANDIDATE_KINDS = {"empty-directory", "git-new", "ignored-generated"}
 
 
 def utc_now() -> str:
@@ -262,10 +264,57 @@ def preflight(inspection: dict[str, Any], approved_ids: list[str]) -> tuple[list
         })
     selected = [candidates[item_id] for item_id in approved_ids if item_id in candidates]
     for item in selected:
+        candidate_kind = item.get("candidate_kind")
+        evidence = item.get("evidence", {})
         if is_reserved_path(item["path"]):
             refusals.append({"code": "reserved-target", "message": f"Reserved path cannot be applied: {item['path']}"})
         if item["current"].get("type") in {"symlink", "junction", "link", "other"}:
             refusals.append({"code": "link-target-unsupported", "message": f"Unsupported target: {item['path']}"})
+        if candidate_kind not in SUPPORTED_CANDIDATE_KINDS:
+            refusals.append({
+                "code": "candidate-contract-invalid",
+                "message": f"Unsupported or missing candidate kind for {item['path']}",
+            })
+        elif candidate_kind == "ignored-generated":
+            ignored = evidence.get("ignored", {})
+            generated = evidence.get("generated_context") or {}
+            references = evidence.get("references", {})
+            if not (
+                item["current"].get("type") == "directory"
+                and ignored.get("root_ignored") is True
+                and ignored.get("complete_tree_ignored") is True
+                and not evidence.get("tracked_paths")
+                and not evidence.get("worktree")
+                and not evidence.get("base")
+                and generated.get("kind") == "dotnet-conventional-output"
+                and generated.get("output_name") in {"bin", "obj"}
+                and generated.get("tracked_projects")
+                and references.get("match_count") == 0
+                and not references.get("matches")
+            ):
+                refusals.append({
+                    "code": "candidate-contract-invalid",
+                    "message": f"Ignored generated evidence is incomplete for {item['path']}",
+                })
+        elif candidate_kind == "empty-directory":
+            references = evidence.get("references", {})
+            metadata = item["current"].get("metadata", {})
+            if not (
+                item["current"].get("type") == "directory"
+                and item["current"].get("entry_count") == 0
+                and isinstance(metadata.get("mode"), int)
+                and isinstance(metadata.get("mtime_ns"), int)
+                and not evidence.get("tracked_paths")
+                and not evidence.get("worktree")
+                and not evidence.get("base")
+                and references.get("match_count") == 0
+                and not references.get("matches")
+                and PurePosixPath(item["path"]).name.lower() not in AMBIGUOUS_EMPTY_NAMES
+            ):
+                refusals.append({
+                    "code": "candidate-contract-invalid",
+                    "message": f"Empty-directory evidence is incomplete for {item['path']}",
+                })
     return selected, refusals
 
 

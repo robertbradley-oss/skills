@@ -80,9 +80,17 @@ python scripts/inspect_repository.py --workspace <workspace-root> --path <worksp
 
 Repeat `--path` for each user-named path. Add `--git-base <explicit-ref>` only when the user supplied that comparison point.
 
-The inspector is read-only. It fingerprints exact current content, reads current Git status, optionally diffs the resolved base against the current worktree, protects control paths and links, and emits IDs bound to the frozen scope, resolved base, Git evidence, action, and current path state.
+The inspector is read-only. It fingerprints exact current content, reads current Git status, optionally diffs the resolved base against the current worktree, protects control paths and links, and emits IDs bound to the frozen scope, resolved base, candidate kind, Git evidence, action, and current path state.
 
-Treat script candidates as provisional. Untracked and added evidence means only “currently new to Git,” not “created by this task.”
+Treat script candidates as provisional. Untracked and added evidence means only "currently new to Git," not "created by this task."
+
+The inspector may emit these candidate kinds:
+
+- `git-new` for the existing exact untracked or added whole-path cases;
+- `ignored-generated` only when the exact selected directory and its complete tree are ignored, no tracked or changed descendants exist, repository references do not retain it, and strong machine-verifiable build context exists. The bundled inspector currently recognizes only conventional `bin` and `obj` directories beside a tracked `.csproj` file;
+- `empty-directory` only when the exact directory is empty, its metadata is fingerprinted, it has no tracked or changed state, repository content does not reference it, and its name does not suggest retained, fixture, runtime, package, or cache ownership.
+
+Ignored status, a generated-looking name, or empty state alone is never evidence of disposability. Keep arbitrary ignored roots such as `artifacts`, `release`, `vendor`, `fixtures`, `cache`, and `output` in `review` unless a future implementation adds an equally strict context rule.
 
 ## Complete reference and context review
 
@@ -91,12 +99,13 @@ Before presenting any candidate:
 - Search the repository for references to the exact path, filename, import/module name, package entry, generated output, and relevant symbols.
 - Inspect nearby source plus relevant build, package, test, CI, documentation, ignore, and configuration context.
 - Check whether a generated-looking path is an expected input, fixture, cache seed, checked deliverable, or required runtime asset.
+- Treat the inspector's literal reference check as a minimum safety gate, not a substitute for this semantic review.
 - Reclassify to `review` when the path may have been adopted, repurposed, indirectly required, or insufficiently explained.
 - Never promote a script `review` or `preserve` item to candidate.
 
 ## Report Inspect results
 
-Return a compact table containing the stable ID, exact path, action, current Git evidence, fingerprint summary, and final candidate/preserve/review decision with reason.
+Return a compact table containing the stable ID, exact path, candidate kind, action, current Git evidence, fingerprint summary, and final candidate/preserve/review decision with reason.
 
 End with one exact proposed authorization set containing only candidates that survived reference and context review. If none survive, state that no safe cleanup is available.
 
@@ -138,7 +147,9 @@ python --% scripts/apply_cleanup.py --workspace C:\workspace --path tmp/debug.lo
 Apply must:
 
 - Re-inspect the frozen scope and reject stale IDs, changed base refs, changed Git state, and changed fingerprints.
-- Refuse reserved, tracked-without-addition, modified, mixed, ignored, absent, special, symlink, junction, escaping, and otherwise uncertain targets.
+- Accept ignored content only for a current `ignored-generated` candidate whose complete ignored tree, tracked-project context, zero-reference result, clean descendant state, and exact fingerprint still match the approved ID.
+- Accept an empty directory only for a current `empty-directory` candidate whose zero-entry state, metadata, zero-reference result, and exact fingerprint still match the approved ID.
+- Refuse arbitrary ignored, reserved, tracked-without-addition, modified, mixed, absent, special, symlink, junction, escaping, referenced, and otherwise uncertain targets.
 - Run validation before mutation and re-inspect afterward so baseline side effects invalidate approval.
 - Move only exact approved roots into a verified quarantine beside the workspace on the same filesystem.
 - Run validation again after quarantine.
