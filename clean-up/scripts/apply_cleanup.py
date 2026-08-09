@@ -33,7 +33,9 @@ from inspect_repository import (
 APPLY_SCHEMA = "clean-up-apply/v2"
 REPORT_SCHEMA = "clean-up-report/v2"
 ID_PATTERN = re.compile(r"^PC-[A-F0-9]{12}$")
-SUPPORTED_CANDIDATE_KINDS = {"empty-directory", "git-new", "ignored-generated"}
+SUPPORTED_CANDIDATE_KINDS = {
+    "empty-directory", "git-new", "ignored-generated", "remote-backed-release",
+}
 
 
 def utc_now() -> str:
@@ -314,6 +316,60 @@ def preflight(inspection: dict[str, Any], approved_ids: list[str]) -> tuple[list
                 refusals.append({
                     "code": "candidate-contract-invalid",
                     "message": f"Empty-directory evidence is incomplete for {item['path']}",
+                })
+        elif candidate_kind == "remote-backed-release":
+            ignored = evidence.get("ignored", {})
+            retention = evidence.get("release_retention") or {}
+            matches = retention.get("asset_matches") or []
+            expected_untracked = {
+                item["path"] + "/" + str(match.get("name")) for match in matches
+                if isinstance(match, dict) and isinstance(match.get("name"), str)
+            }
+            local_git_state = retention.get("local_git_state")
+            safe_git_state = (
+                local_git_state == "ignored"
+                and ignored.get("root_ignored") is True
+                and ignored.get("complete_tree_ignored") is True
+                and not evidence.get("worktree")
+            ) or (
+                local_git_state == "untracked"
+                and set(evidence.get("worktree", {})) == expected_untracked
+                and all(
+                    state.get("code") == "??"
+                    for state in evidence.get("worktree", {}).values()
+                )
+            )
+            if not (
+                item["current"].get("type") == "directory"
+                and safe_git_state
+                and not evidence.get("tracked_paths")
+                and not evidence.get("base")
+                and retention.get("kind") == "github-release-asset-set"
+                and retention.get("eligible") is True
+                and retention.get("keep_newest_stable") == 2
+                and isinstance(retention.get("newer_stable_count"), int)
+                and retention["newer_stable_count"] >= 2
+                and isinstance(retention.get("repository"), str)
+                and isinstance(retention.get("release_tag"), str)
+                and len(matches) >= 2
+                and not retention.get("unmatched_files")
+                and all(
+                    isinstance(match, dict)
+                    and isinstance(match.get("name"), str)
+                    and isinstance(match.get("size"), int)
+                    and isinstance(match.get("remote_url"), str)
+                    and match["remote_url"].startswith(
+                        f"https://github.com/{retention.get('repository')}/releases/download/"
+                    )
+                    and re.fullmatch(r"[A-Fa-f0-9]{64}", str(match.get("sha256", "")))
+                    and str(match.get("remote_digest", "")).lower()
+                    == "sha256:" + str(match.get("sha256", "")).lower()
+                    for match in matches
+                )
+            ):
+                refusals.append({
+                    "code": "candidate-contract-invalid",
+                    "message": f"Remote-backed release evidence is incomplete for {item['path']}",
                 })
     return selected, refusals
 

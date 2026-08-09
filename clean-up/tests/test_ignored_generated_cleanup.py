@@ -250,6 +250,24 @@ class IgnoredGeneratedInspectTests(IgnoredGeneratedFixture):
         self.assertEqual(item["evidence"]["references"]["match_semantics"], "path-token")
         self.assertEqual(item["evidence"]["references"]["match_count"], 0)
 
+    def test_gameplan_references_are_not_read_or_used_by_inspect(self) -> None:
+        (self.workspace / "GAMEPLAN.md").write_text(
+            "Retain the top-level tmp directory.\n", encoding="utf-8",
+        )
+        (self.workspace / ".gameplan" / "footprints").mkdir(parents=True)
+        (self.workspace / ".gameplan" / "footprints" / "current.md").write_text(
+            "The tmp directory was retained.\n", encoding="utf-8",
+        )
+        self.git("add", "GAMEPLAN.md", ".gameplan/footprints/current.md")
+        self.git("commit", "-qm", "add planning controls")
+        (self.workspace / "tmp").mkdir()
+
+        item = self.inspect(["tmp"])["items"][0]
+
+        self.assertEqual(item["classification"], "candidate")
+        self.assertEqual(item["candidate_kind"], "empty-directory")
+        self.assertEqual(item["evidence"]["references"]["match_count"], 0)
+
     def test_exact_and_descendant_path_hits_reference_empty_tmp(self) -> None:
         (self.workspace / "config.json").write_text(
             '{"requiredDirectory":"tmp","cachePath":"tmp\\\\session"}\n',

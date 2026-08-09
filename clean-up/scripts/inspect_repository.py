@@ -14,6 +14,8 @@ import sys
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from release_retention import analyze_release_directory
+
 
 OUTPUT_SCHEMA = "clean-up-inspection/v2"
 RESERVED_EXACT_PATHS = {".clean-up", ".git", ".gameplan", ".post-clean", "GAMEPLAN.md"}
@@ -364,6 +366,13 @@ def repository_reference_evidence(root: Path, path: str) -> tuple[dict[str, Any]
     arguments = ["grep", "--untracked", "--full-name", "-I", "-i", "-n", "-F"]
     for query in queries:
         arguments.extend(["-e", query])
+    arguments.extend([
+        "--", ".",
+        ":(exclude)GAMEPLAN.md",
+        ":(exclude).gameplan/**",
+        ":(exclude).clean-up/**",
+        ":(exclude).post-clean/**",
+    ])
     completed = run_git(root, arguments)
     if completed.returncode not in {0, 1}:
         return {}, decode_path(completed.stderr).strip() or "git grep failed"
@@ -439,6 +448,36 @@ def classify_git(
                     detail,
                     "ignored-generated",
                 )
+        expected_untracked = {path + "/" + child for child in files}
+        fully_untracked = bool(expected_untracked) and set(status) == expected_untracked and all(
+            item.get("code") == "??" for item in status.values()
+        )
+        release_retention = analyze_release_directory(path, absolute)
+        detail["release_retention"] = release_retention
+        if release_retention is not None:
+            if ignored.get("root_ignored") and ignored.get("complete_tree_ignored") and not status:
+                local_git_state = "ignored"
+            elif fully_untracked and not tracked and not base_changes:
+                local_git_state = "untracked"
+            else:
+                local_git_state = "unsafe"
+            release_retention = {**release_retention, "local_git_state": local_git_state}
+            detail["release_retention"] = release_retention
+            if tracked or base_changes or local_git_state == "unsafe":
+                return "review", "Release directory has tracked, staged, modified, or mixed Git state", detail, None
+            references, reference_error = repository_reference_evidence(root, path)
+            detail["references"] = references
+            if reference_error:
+                detail["evidence_error"] = reference_error
+                return "review", "Repository references could not be checked", detail, None
+            if release_retention.get("eligible") is True:
+                return (
+                    "candidate",
+                    "The exact release is fully backed by published SHA-256 assets and superseded",
+                    detail,
+                    "remote-backed-release",
+                )
+            return "review", str(release_retention.get("reason") or "Release retention is unresolved"), detail, None
         if current.get("entry_count") == 0:
             if tracked or status or base_changes:
                 return "review", "Empty directory has tracked or changed Git state", detail, None
@@ -483,7 +522,7 @@ def classify_git(
     if base_code.startswith("A"):
         return "candidate", "Path is explicitly named and added relative to the explicit Git base", detail, "git-new"
     if worktree_code or base_code:
-        return "review", "Git shows a modification, deletion, rename, copy, or mixed state—not safe whole-path provenance", detail, None
+        return "review", "Git shows a modification, deletion, rename, copy, or mixed state - not safe whole-path provenance", detail, None
     return "review", "Path is tracked with no evidence that the current task or branch introduced it", detail, None
 
 
