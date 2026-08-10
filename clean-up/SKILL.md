@@ -1,14 +1,15 @@
 ---
 name: clean-up
-description: Discover possible cleanup leads across folders, workspaces, worktrees, and repositories, investigate release-retention evidence, then safely remove explicitly approved whole paths using Git evidence, exact remote asset hashes, fingerprinted state, recoverable quarantine, validation, and restoration. Use when the user asks about junk, leftovers, duplicates, stale artifacts, generated residue, release history, or cleanup needs. Broad discovery is read-only and never authorizes deletion.
+description: Audit folders, workspaces, worktrees, and repositories for junk, leftovers, duplicates, stale artifacts, generated residue, release history, and cleanup needs; return a plain evidence-based cleanup verdict; and safely remove only explicitly approved whole paths. Use for broad "is this clean?" questions and exact cleanup requests. Broad triage is read-only, investigates likely residue automatically, and never weakens Apply authorization.
 ---
 
 # Clean Up
 
-Work in three separate modes: **Discover**, **Inspect**, and **Apply**.
+Work in four separate modes: **Discover**, **Triage**, **Inspect**, and **Apply**.
 
-- Default to **Discover** for broad questions such as "is there anything to clean up?"
-- Use **Inspect** for exact workspace-relative paths named by the user or explicitly selected from the current discovery output.
+- Default to **Triage** for broad questions such as "is there anything to clean up?" or "is this repository generally clean?"
+- Use **Discover** only when the user explicitly wants the raw read-only lead inventory or when diagnosing Triage.
+- Use **Inspect** for exact workspace-relative paths named by the user, explicitly selected from discovery, or automatically selected by Triage.
 - Enter **Apply** only after the user approves exact state-bound `PC-...` candidate IDs from a completed Inspect evidence review.
 
 Never treat a `PD-...` discovery lead as a cleanup candidate or authorization. Discovery finds reasons to look closer; it does not establish that anything is disposable.
@@ -41,9 +42,9 @@ Discovery may surface:
 
 The discovery script does not follow links, enter version-control metadata, include generated-package contents in duplicate analysis, mutate files, emit `PC-...` candidates, or support Apply. It summarizes generated roots with bounded counts and hashes only same-size file groups within an explicit byte budget. Its `PD-...` IDs are stable review handles only. Treat common-name and duplicate heuristics as signals, not proof: `release/`, `artifacts/`, `vendor/`, identical fixtures, ignored paths, and merged branches may all be intentional.
 
-Before recommending next steps, inspect the evidence for each relevant lead. Report path leads separately from duplicate sets, branches, worktrees, and repository metadata. Folder-only and duplicate-set leads remain report-only because the current Inspect and Apply workflow requires an exact Git root and one selected path.
+Discovery is the broad signal collector used by Triage. Folder-only and duplicate-set leads remain report-only because Inspect and Apply require an exact Git root and exact path.
 
-### Report Discover results
+### Report raw Discover results only when requested
 
 Return a compact table containing the `PD-...` ID, surface, exact target, signal, confidence, footprint when available, and why it needs review. Group the practical conclusion into:
 
@@ -62,11 +63,52 @@ State these boundaries explicitly:
 - `PD-...` leads cannot authorize removal.
 - Git-root exact path inspection and separate `PC-...` approval are still required.
 
+## Triage broad results automatically
+
+For the default broad cleanup audit, run the bundled read-only triage script from the skill directory:
+
+```text
+python scripts/triage_repository.py --workspace <folder-or-repository-root> --format json
+```
+
+Pass the same explicit `--git-base`, discovery budgets, and truncation disclosures described above. Use `--max-inspections <n>` to bound automatic exact inspections. Triage must return `incomplete` when any required scan or inspection budget is exhausted.
+
+Triage runs Discover, groups every lead by decision surface, and automatically runs exact Inspect on plausible generated and temporary Git-root paths. It may place only strict `empty-directory`, `ignored-generated`, and `remote-backed-release` results in `safe_to_remove`. A broad `git-new` result is always unresolved because Git cannot prove why the path exists. Duplicate sets, tracked-code opportunities, branches, and worktrees never become path Apply candidates.
+
+Treat Triage candidates as provisional until completing the reference and context review below. Downgrade any candidate whose active purpose remains ambiguous. Never promote a script `review` result. Do not ask the user to choose raw leads that the skill can investigate itself.
+
+### Report the decision, not the inventory
+
+Lead with one plain repository verdict:
+
+- `cleanup-recommended` when one or more strict whole-path candidates survive review;
+- `clean` only after a complete scan leaves no candidate, unresolved lead, or Git hygiene item;
+- `generally-clean-git-hygiene` when file cleanup is complete but branch or worktree review remains;
+- `review-remains` when missing evidence prevents a clean verdict;
+- `incomplete` when warnings, truncation, or exhausted budgets prevent a complete audit.
+
+Then report:
+
+- proven safe-to-remove paths with exact `PC-...` IDs and total recoverable space;
+- only the highest-impact unresolved blockers and the exact evidence each lacks;
+- a count of items kept with concrete evidence, expanding them only when useful or requested;
+- branch and worktree hygiene as a separate recommendation;
+- a direct answer to whether the workspace is generally clean.
+
+Do not dump the full raw `PD-...` inventory by default. Preserve it in the JSON evidence and summarize counts. If no strict candidate survives, say so directly instead of asking the user to guess which path should be inspected.
+
+State these boundaries explicitly:
+
+- Triage and its automatic exact inspections made no filesystem or Git mutations.
+- `PD-...` discovery IDs cannot authorize removal.
+- A `PC-...` candidate still requires separate explicit approval.
+- Apply will re-inspect and refuse stale or changed evidence.
+
 ## Freeze the inspection scope
 
-Require one or more exact workspace-relative paths named by the user or explicitly selected by `PD-...` ID from the current discovery output. Resolve a selected discovery ID only to the exact path recorded in that same output. Do not silently expand it, infer sibling paths, or pass a `PD-...` ID to Apply.
+Require one or more exact workspace-relative paths named by the user, explicitly selected by `PD-...` ID from the current discovery output, or automatically selected by the current Triage result. Resolve a selected discovery ID only to the exact path recorded in that same output. Triage may select only the exact path attached to a current lead. Do not silently expand it, infer sibling paths, or pass a `PD-...` ID to Apply.
 
-Reject wildcards, traversal, the workspace root, absolute paths, duplicates, and overlapping parent/child scopes. Discovery is the only mode allowed to scan broadly; Inspect must remain frozen to exact paths.
+Reject wildcards, traversal, the workspace root, absolute paths, duplicates, and overlapping parent/child scopes. Discover and Triage may scan broadly; every Inspect call must remain frozen to exact paths.
 
 Optionally accept one explicit Git commit, tag, or branch with `--git-base`. Resolve it to a commit during inspection. Do not guess a base, choose one by timestamp, or silently substitute a merge base.
 

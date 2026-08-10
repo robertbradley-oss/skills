@@ -11,7 +11,7 @@ no plugin or marketplace packaging. Repository-wide automation lives under
 | --- | --- | --- |
 | Clean Handoff | Create trustworthy project handoffs for fresh Codex tasks. | [`clean-handoff/`](clean-handoff/) |
 | GamePlan | Preserve strategic continuity and control approved execution slices. | [`gameplan/`](gameplan/) |
-| Clean Up | Discover cleanup leads, investigate release retention, and apply only approved, recoverable Git-root cleanup. | [`clean-up/`](clean-up/) |
+| Clean Up | Turn broad cleanup scans into evidence-based verdicts, then apply only approved, recoverable Git-root cleanup. | [`clean-up/`](clean-up/) |
 | Simplify | Explain technical reports in everyday language without changing their conclusions. | [`simplify-report/`](simplify-report/) |
 
 Install any package with Codex's `$skill-installer` using this repository and
