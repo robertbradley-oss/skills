@@ -13,7 +13,8 @@ sys.path.insert(0, str(SKILL_ROOT / "scripts"))
 from apply_cleanup import preflight  # noqa: E402
 from inspect_repository import inspect  # noqa: E402
 from triage_repository import (  # noqa: E402
-    decision_for_inspection, path_role_keep_reason, render_markdown, triage,
+    decision_for_inspection, keep_git_hygiene_item, path_role_keep_reason,
+    render_markdown, triage,
 )
 
 
@@ -57,7 +58,7 @@ class TriageRepositoryTests(unittest.TestCase):
 
             result = triage(root, None, 50)
 
-            self.assertEqual(result["schema"], "clean-up-triage/v4")
+            self.assertEqual(result["schema"], "clean-up-triage/v5")
             self.assertFalse(result["mutations_performed"])
             self.assertEqual(result["verdict"], "cleanup-recommended")
             self.assertIn("prevent a fully clean verdict", result["headline"])
@@ -274,7 +275,7 @@ class TriageRepositoryTests(unittest.TestCase):
             self.assertIn("## Tracked code", markdown)
             self.assertIn("DC-...` IDs are review handles only", markdown)
 
-    def test_file_organization_opportunity_is_review_only_and_prevents_false_clean(self) -> None:
+    def test_file_organization_opportunity_is_decided_without_user_review(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = self.repository(Path(temporary), outputs=0)
             docs = root / "docs"
@@ -287,17 +288,19 @@ class TriageRepositoryTests(unittest.TestCase):
             result = triage(root, None, 50)
             markdown = render_markdown(result)
 
-            self.assertEqual(result["verdict"], "review-remains")
+            self.assertEqual(result["verdict"], "organization-recommended")
             organization = next(
                 item for item in result["file_organization"] if item["path"] == "notes.md"
             )
             self.assertTrue(organization["id"].startswith("FO-"))
             self.assertEqual(organization["suggested_destination"], "docs/notes.md")
-            self.assertEqual(organization["classification"], "review")
+            self.assertEqual(organization["classification"], "move-recommended")
+            self.assertIn(organization, result["file_organization_moves"])
             self.assertNotIn(organization["id"], result["proposed_authorization_set"])
             self.assertNotIn(organization["id"], result["proposed_git_authorization_set"])
             self.assertIn("## File organization", markdown)
-            self.assertIn("FO-...` IDs are review handles only", markdown)
+            self.assertIn("destinations already decided", result["headline"])
+            self.assertIn("FO-...` IDs record decisions", markdown)
 
     def test_triage_analyzes_modified_supported_code_without_a_changed_file_gap(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -323,6 +326,39 @@ class TriageRepositoryTests(unittest.TestCase):
                 "changed-supported-files",
                 {item["code"] for item in result["tracked_code_coverage"]},
             )
+
+    def test_dirty_linked_worktree_is_preserved_automatically_without_user_review(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary)
+            root = self.repository(parent, outputs=0)
+            linked = parent / "dirty-linked"
+            self.git(root, "worktree", "add", "-qb", "dirty-topic", str(linked), "main")
+            (linked / "tracked.data").write_text("changed\n", encoding="ascii")
+
+            result = triage(root, None, 50)
+
+            kept = [item for item in result["git_hygiene_keep"] if item["surface"] == "worktree"]
+            self.assertEqual(len(kept), 1)
+            self.assertIn("unique local data", kept[0]["reason"])
+            self.assertEqual(result["git_hygiene"], [])
+            self.assertEqual(result["summary"]["git_hygiene_review_count"], 0)
+            self.assertGreaterEqual(result["summary"]["git_hygiene_kept_count"], 1)
+            self.assertEqual(result["verdict"], "clean")
+
+    def test_git_inspection_error_defaults_to_preserve_instead_of_user_review(self) -> None:
+        lead = {
+            "id": "PD-0123456789AB", "surface": "worktree", "target": "C:/old/worktree",
+        }
+        item = {
+            "surface": "worktree", "target": "C:/old/worktree",
+            "classification": "review", "evidence": {"errors": ["ownership check failed"]},
+        }
+
+        kept = keep_git_hygiene_item(lead, item)
+
+        self.assertIsNotNone(kept)
+        self.assertEqual(kept["decision"], "keep")
+        self.assertIn("safety default keeps", kept["reason"])
 
 
 if __name__ == "__main__":

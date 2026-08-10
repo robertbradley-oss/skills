@@ -43,7 +43,7 @@ class FileOrganizationAnalysisTests(unittest.TestCase):
 
             result = analyze_file_organization(root)
 
-            self.assertEqual(result["schema"], "clean-up-file-organization/v1")
+            self.assertEqual(result["schema"], "clean-up-file-organization/v2")
             self.assertFalse(result["mutations_performed"])
             self.assertFalse(result["apply_supported"])
             self.assertEqual(len(result["findings"]), 1)
@@ -52,8 +52,9 @@ class FileOrganizationAnalysisTests(unittest.TestCase):
             self.assertEqual(finding["path"], "mockup.png")
             self.assertEqual(finding["suggested_destination"], "references/mockup.png")
             self.assertEqual(finding["git_state"], "untracked")
-            self.assertEqual(finding["classification"], "review")
-            self.assertEqual(finding["proposed_action"], "none")
+            self.assertEqual(finding["classification"], "move-recommended")
+            self.assertEqual(finding["proposed_action"], "move-file-with-reference-updates")
+            self.assertEqual(finding["references"]["match_count"], 0)
             self.assertEqual(result["proposed_authorization_set"], [])
             self.assertEqual(loose.read_bytes(), before)
             self.assertFalse((root / "references" / "mockup.png").exists())
@@ -71,6 +72,8 @@ class FileOrganizationAnalysisTests(unittest.TestCase):
             finding = next(item for item in result["findings"] if item["path"] == "notes.md")
             self.assertEqual(finding["git_state"], "tracked-changed")
             self.assertEqual(finding["suggested_destination"], "docs/notes.md")
+            self.assertEqual(finding["classification"], "keep")
+            self.assertIn("changed", finding["reason"])
             self.assertTrue((root / "notes.md").exists())
 
     def test_multiple_established_destinations_remain_ambiguous(self) -> None:
@@ -86,8 +89,8 @@ class FileOrganizationAnalysisTests(unittest.TestCase):
             finding = result["findings"][0]
             self.assertIsNone(finding["suggested_destination"])
             self.assertEqual(finding["candidate_directories"], ["assets", "references"])
-            self.assertEqual(finding["confidence"], "weak")
-            self.assertIn("Semantic intent", finding["reason"])
+            self.assertEqual(finding["classification"], "keep")
+            self.assertIn("no unique destination is proven", finding["reason"])
 
     def test_root_control_and_entrypoint_files_are_never_organization_leads(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -129,7 +132,21 @@ class FileOrganizationAnalysisTests(unittest.TestCase):
 
             self.assertIn("FO-", markdown)
             self.assertIn("Mutations: `none`", markdown)
-            self.assertIn("FO IDs are review handles only", markdown)
+            self.assertIn("FO IDs record automatic move-or-keep decisions", markdown)
+
+    def test_referenced_file_is_still_decided_with_exact_updates_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.repository(Path(temporary), {
+                "docs/guide.md": b"See notes.md for details.\n",
+                "notes.md": b"notes\n",
+            })
+
+            result = analyze_file_organization(root)
+
+            finding = next(item for item in result["findings"] if item["path"] == "notes.md")
+            self.assertEqual(finding["classification"], "move-recommended")
+            self.assertEqual(finding["references"]["match_count"], 1)
+            self.assertIn("Update 1 repository path reference", finding["reason"])
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ from inspect_git_hygiene import inspect_git_hygiene
 from inspect_repository import fingerprint_summary, inspect
 
 
-OUTPUT_SCHEMA = "clean-up-triage/v4"
+OUTPUT_SCHEMA = "clean-up-triage/v5"
 AUTO_INSPECT_SIGNALS = {"generated-residue", "temporary-file"}
 STRICT_CANDIDATE_KINDS = {
     "empty-directory", "ignored-generated", "remote-backed-release", "temporary-residue",
@@ -206,6 +206,69 @@ def keep_lead(lead: dict[str, Any], reason: str) -> dict[str, Any]:
     }
 
 
+def keep_git_hygiene_item(lead: dict[str, Any], item: dict[str, Any]) -> dict[str, Any] | None:
+    evidence = item.get("evidence", {})
+    if not isinstance(evidence, dict):
+        return None
+    surface = item.get("surface")
+    if evidence.get("errors"):
+        reason = (
+            "Preserve automatically: Git inspection errors prevent proof of safe removal, so the "
+            f"safety default keeps this {surface or 'Git item'}."
+        )
+    elif surface == "branch":
+        if not evidence.get("exists"):
+            reason = "No local branch exists, so no Git cleanup is needed."
+        elif evidence.get("protected"):
+            reason = "Keep automatically: this is a protected integration branch."
+        elif evidence.get("checked_out_at"):
+            reason = (
+                "Keep automatically: the branch is checked out in worktree "
+                f"{evidence['checked_out_at']}."
+            )
+        elif evidence.get("unique_commits") not in {None, 0} or not evidence.get("fully_merged"):
+            count = evidence.get("unique_commits")
+            detail = f"{count} unique commit(s)" if isinstance(count, int) else "possible unique work"
+            reason = f"Keep automatically: the branch has {detail} relative to the integration branch."
+        elif not evidence.get("integration"):
+            reason = "Keep automatically: no trusted integration ref proves the branch recoverable."
+        else:
+            reason = "Keep automatically: current evidence does not prove branch deletion safe."
+    elif surface == "worktree":
+        if not evidence.get("registered"):
+            reason = "No registered linked worktree exists at this path, so no cleanup is needed."
+        elif evidence.get("current"):
+            reason = "Keep automatically: this is the active workspace worktree."
+        elif evidence.get("locked"):
+            reason = "Keep automatically: the linked worktree is locked."
+        elif not evidence.get("exists") or evidence.get("prunable"):
+            reason = "Keep automatically: registered or prunable metadata is preserved because broad pruning is unsupported."
+        elif not evidence.get("plain_directory"):
+            reason = "Keep automatically: the worktree path is not a plain directory."
+        elif evidence.get("detached") or not evidence.get("branch_recovery"):
+            reason = "Keep automatically: the detached or branch-unrecoverable HEAD may be unique local work."
+        elif evidence.get("status", {}).get("count") or evidence.get("ignored", {}).get("count"):
+            reason = (
+                "Keep automatically: changed, untracked, or ignored files may be unique local data "
+                f"(status {evidence.get('status', {}).get('count', 0)}, "
+                f"ignored {evidence.get('ignored', {}).get('count', 0)})."
+            )
+        elif (
+            evidence.get("submodules", {}).get("count")
+            or evidence.get("worktree_config", {}).get("exists")
+            or evidence.get("sparse_checkout", {}).get("exists")
+        ):
+            reason = "Keep automatically: specialized submodule, sparse, or worktree configuration must be preserved."
+        else:
+            reason = "Keep automatically: current evidence does not prove worktree removal safe."
+    else:
+        return None
+    return {
+        "lead_id": lead["id"], "surface": str(surface), "target": item.get("target"),
+        "decision": "keep", "reason": reason, "evidence": evidence,
+    }
+
+
 def structured_artifact_archive(root: Path, lead: dict[str, Any]) -> bool:
     if lead.get("target") != "artifacts" or lead.get("evidence", {}).get("git") != "ignored":
         return False
@@ -340,6 +403,7 @@ def verdict_for(result: dict[str, Any]) -> tuple[str, str]:
     )
     candidates = summary["safe_to_remove_count"]
     git_candidates = summary.get("git_hygiene_candidate_count", 0)
+    organization_moves = summary.get("file_organization_move_count", 0)
     recoverable = summary["recoverable_bytes"]
     unresolved = summary["unresolved_count"]
     hygiene = summary["git_hygiene_count"]
@@ -355,9 +419,16 @@ def verdict_for(result: dict[str, Any]) -> tuple[str, str]:
             parts.append(f"{candidates} proven whole-path candidate(s) can recover {format_bytes(recoverable)}")
         if git_candidates:
             parts.append(f"{git_candidates} proven Git hygiene candidate(s) can be removed")
+        if organization_moves:
+            parts.append(f"{organization_moves} exact file move(s) are recommended")
         return (
             "cleanup-recommended",
             f"Cleanup is recommended: {'; '.join(parts)}.{unresolved_note}",
+        )
+    if organization_moves:
+        return (
+            "organization-recommended",
+            f"Removable cleanup is complete; {organization_moves} exact file move(s) are recommended with destinations already decided.",
         )
     if unresolved:
         return (
@@ -415,9 +486,12 @@ def triage(
         "unresolved": [],
         "git_hygiene": [],
         "git_hygiene_candidates": [],
+        "git_hygiene_keep": [],
         "tracked_code": [],
         "tracked_code_coverage": [],
         "file_organization": [],
+        "file_organization_moves": [],
+        "file_organization_keep": [],
         "file_organization_coverage": [],
         "repository_attention": [],
         "proposed_authorization_set": [],
@@ -455,6 +529,14 @@ def triage(
             root, max_organization_files, max_organization_bytes,
         )
         result["file_organization"] = list(file_organization_analysis.get("findings", []))
+        result["file_organization_moves"] = [
+            item for item in result["file_organization"]
+            if item.get("classification") == "move-recommended"
+        ]
+        result["file_organization_keep"] = [
+            item for item in result["file_organization"]
+            if item.get("classification") == "keep"
+        ]
         result["file_organization_coverage"] = list(
             file_organization_analysis.get("coverage_gaps", [])
         )
@@ -517,7 +599,11 @@ def triage(
                     "reason": item["reason"], "evidence": item["evidence"],
                 })
             elif item:
-                result["git_hygiene"].append(unresolved_lead(lead, item.get("reason")))
+                kept = keep_git_hygiene_item(lead, item)
+                if kept:
+                    result["git_hygiene_keep"].append(kept)
+                else:
+                    result["git_hygiene"].append(unresolved_lead(lead, item.get("reason")))
             else:
                 result["git_hygiene"].append(unresolved_lead(
                     lead,
@@ -538,6 +624,7 @@ def triage(
     result["unresolved"].sort(key=lambda item: (-item.get("bytes", 0), item["target"]))
     result["git_hygiene"].sort(key=lambda item: (item["surface"], item["target"]))
     result["git_hygiene_candidates"].sort(key=lambda item: (item["surface"], item["target"]))
+    result["git_hygiene_keep"].sort(key=lambda item: (item["surface"], str(item["target"])))
     result["tracked_code"].sort(key=lambda item: (item["path"], item["line"], item["symbol"]))
     result["file_organization"].sort(key=lambda item: item["path"].casefold())
     result["proposed_authorization_set"] = [
@@ -565,6 +652,7 @@ def triage(
         "unresolved_count": len(result["unresolved"]) + len(result["repository_attention"]),
         "git_hygiene_candidate_count": len(result["git_hygiene_candidates"]),
         "git_hygiene_review_count": len(result["git_hygiene"]),
+        "git_hygiene_kept_count": len(result["git_hygiene_keep"]),
         "git_hygiene_count": len(result["git_hygiene_candidates"]) + len(result["git_hygiene"]),
         "tracked_code_review_count": len(result["tracked_code"]),
         "tracked_code_coverage_gap_count": len(result["tracked_code_coverage"]),
@@ -575,7 +663,9 @@ def triage(
             tracked_code_analysis.get("summary", {}).get("reference_files_scanned", 0)
             if tracked_code_analysis else 0
         ),
-        "file_organization_review_count": len(result["file_organization"]),
+        "file_organization_review_count": 0,
+        "file_organization_move_count": len(result["file_organization_moves"]),
+        "file_organization_kept_count": len(result["file_organization_keep"]),
         "file_organization_coverage_gap_count": len(result["file_organization_coverage"]),
         "file_organization_scan_truncated": bool(
             file_organization_analysis
@@ -585,7 +675,6 @@ def triage(
     result["summary"]["unresolved_count"] += (
         result["summary"]["tracked_code_review_count"]
         + result["summary"]["tracked_code_coverage_gap_count"]
-        + result["summary"]["file_organization_review_count"]
         + result["summary"]["file_organization_coverage_gap_count"]
     )
     result["verdict"], result["headline"] = verdict_for(result)
@@ -667,20 +756,21 @@ def render_markdown(result: dict[str, Any], details_limit: int = 10) -> str:
         )
 
     lines.extend(["", "## File organization", ""])
-    if result["file_organization"]:
+    if result["file_organization_moves"]:
         lines.extend([
-            "| Review ID | Loose file | Role | Git state | Suggested destination |",
-            "|---|---|---|---|---|",
+            "| ID | Exact move decision | Git state | Reference updates |",
+            "|---|---|---|---:|",
         ])
-        for item in result["file_organization"][:details_limit]:
-            destination = item["suggested_destination"] or "review destination options"
+        for item in result["file_organization_moves"][:details_limit]:
+            references = int((item.get("references") or {}).get("match_count", 0))
             lines.append(
-                f"| `{item['id']}` | `{markdown_cell(item['path'])}` | `{item['role']}` | "
-                f"`{item['git_state']}` | `{markdown_cell(destination)}` |"
+                f"| `{item['id']}` | `{markdown_cell(item['path'])}` -> "
+                f"`{markdown_cell(item['suggested_destination'])}` | `{item['git_state']}` | "
+                f"{references} |"
             )
         hidden_organization = (
-            len(result["file_organization"])
-            - min(len(result["file_organization"]), details_limit)
+            len(result["file_organization_moves"])
+            - min(len(result["file_organization_moves"]), details_limit)
         )
         if hidden_organization:
             lines.extend([
@@ -688,7 +778,12 @@ def render_markdown(result: dict[str, Any], details_limit: int = 10) -> str:
                 f"{hidden_organization} additional file-organization lead(s) are retained in the JSON evidence.",
             ])
     else:
-        lines.append("No evidence-backed file-organization opportunities were found.")
+        lines.append("No file moves are recommended.")
+    if result["file_organization_keep"]:
+        lines.extend([
+            "",
+            f"Kept automatically at the current location: {len(result['file_organization_keep'])} file(s).",
+        ])
     if result["file_organization_coverage"]:
         lines.extend(["", "Coverage gaps:"])
         lines.extend(
@@ -715,14 +810,24 @@ def render_markdown(result: dict[str, Any], details_limit: int = 10) -> str:
             f"{len(result['git_hygiene'])} branch or worktree item(s) remain review-only."
         )
     elif not result["git_hygiene_candidates"]:
-        lines.append("No separate branch or worktree hygiene items were found.")
+        lines.append("No removable branch or worktree hygiene items were found.")
+    if result["git_hygiene_keep"]:
+        lines.extend([
+            "",
+            f"Preserved automatically with concrete evidence: {len(result['git_hygiene_keep'])} branch or worktree item(s).",
+        ])
+        for item in result["git_hygiene_keep"][:details_limit]:
+            lines.append(
+                f"- `{markdown_cell(item['target'])}`: {markdown_cell(item['reason'])}"
+            )
     if result["keep"]:
         lines.extend(["", f"Kept automatically with concrete evidence: {len(result['keep'])} path(s)."])
     lines.extend([
         "", "Triage and its exact inspections made no filesystem or Git mutations.",
         "Discovery `PD-...` IDs never authorize removal.",
         "Tracked-code `DC-...` IDs are review handles only and never authorize Apply.",
-        "File-organization `FO-...` IDs are review handles only and never authorize Apply.",
+        "Triage decides move, keep, delete, or preserve automatically; it asks the user only for mutation authorization.",
+        "File-organization `FO-...` IDs record decisions but never authorize Apply.",
         "Path `PC-...` and Git hygiene `GC-...` candidates require their separate Apply commands, explicit approval, and fresh verification.",
     ])
     if result["warnings"]:

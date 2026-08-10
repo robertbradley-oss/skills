@@ -1,6 +1,6 @@
 ---
 name: clean-up
-description: Audit folders, workspaces, worktrees, and repositories for junk, leftovers, duplicates, stale artifacts, generated residue, release history, disorganized files, tracked dead-code signals, and cleanup needs; return a plain evidence-based cleanup verdict; and safely remove only explicitly approved whole paths. Use for broad "is this clean or organized?" questions, file-organization reviews, and exact cleanup requests. Broad triage is read-only, investigates likely residue automatically, and never weakens Apply authorization.
+description: Audit folders, workspaces, worktrees, and repositories for junk, leftovers, duplicates, stale artifacts, generated residue, release history, disorganized files, tracked dead-code signals, and cleanup needs; automatically decide what to remove, move, keep, or preserve; and safely mutate only explicitly approved targets. Use for broad "is this clean or organized?" questions and exact cleanup requests. Broad triage is read-only, resolves reviewable evidence itself, and never asks the user to make technical retention decisions.
 ---
 
 # Clean Up
@@ -76,12 +76,14 @@ python scripts/triage_repository.py --workspace <folder-or-repository-root> --fo
 
 Pass the same explicit `--git-base`, discovery budgets, and truncation disclosures described above. Use `--max-inspections <n>` to bound automatic exact inspections. Triage must return `incomplete` when any required scan or inspection budget is exhausted.
 
-Triage runs Discover, groups every lead by decision surface, automatically runs exact path Inspect on plausible generated and temporary Git-root paths, automatically runs exact Git Inspect on branch and worktree leads, runs bounded tracked-code analysis on an exact Git root, and reviews loose root files against established workspace directories. It may place only strict `empty-directory`, `ignored-generated`, `remote-backed-release`, and `temporary-residue` results in `safe_to_remove`. A broad `git-new` result is always unresolved because Git cannot prove why the path exists. Duplicate sets, tracked-code opportunities, and file-organization opportunities remain report-only. Branches and worktrees never become path Apply candidates; only the separate Git lane may emit `GC-...` candidates.
+Triage runs Discover, groups every lead by decision surface, automatically runs exact path Inspect on plausible generated and temporary Git-root paths, automatically runs exact Git Inspect on branch and worktree leads, runs bounded tracked-code analysis on an exact Git root, and decides whether loose root files should move or stay. It may place only strict `empty-directory`, `ignored-generated`, `remote-backed-release`, and `temporary-residue` results in `safe_to_remove`. A broad `git-new` result is preserved unless stronger evidence proves residue. Duplicate sets and tracked-code opportunities remain report-only. Branches and worktrees never become path Apply candidates; only the separate Git lane may emit `GC-...` candidates.
 
 Git Triage may identify:
 
 - `merged-local-branch` only when a non-protected local branch is not checked out, has no unique commits, and its exact tip is fully contained in the resolved `origin/HEAD` or protected local integration branch;
 - `clean-linked-worktree` only when the secondary worktree is branch-backed and fully clean, has no untracked or ignored data, and has no lock, detached HEAD, submodule, sparse-checkout, or worktree-specific configuration state.
+
+Automatically preserve every non-candidate branch or worktree with the concrete reason: active, protected, checked out, unique commits, detached HEAD, dirty or ignored data, lock, specialized configuration, missing recovery proof, unsupported pruning state, or inspection error. Do not call these items `review` or ask the user what they contain. Leave Git review unresolved only when the entire inspection failed or exceeded its budget.
 
 Use `--max-git-inspections <n>` to bound automatic Git inspections. Any exhausted path or Git inspection budget makes the Triage verdict `incomplete`.
 
@@ -102,9 +104,10 @@ Treat Triage candidates as provisional until completing the reference and contex
 Lead with one plain repository verdict:
 
 - `cleanup-recommended` when one or more strict whole-path candidates survive review;
+- `organization-recommended` when removable cleanup is complete and one or more exact file moves are already decided;
 - `clean` only after a complete scan leaves no candidate, unresolved lead, or Git hygiene item;
 - `generally-clean-git-hygiene` when file cleanup is complete but branch or worktree review remains;
-- `review-remains` when missing evidence prevents a clean verdict;
+- `review-remains` only when a failed or unreadable evidence source prevents an automatic decision;
 - `incomplete` when warnings, truncation, or exhausted budgets prevent a complete audit.
 
 Then report:
@@ -114,10 +117,10 @@ Then report:
 - a count of items kept with concrete evidence, expanding them only when useful or requested;
 - proven Git-hygiene candidates with exact `GC-...` IDs, plus a count of review-only Git items;
 - tracked-code review leads with exact `DC-...` IDs, changed-worktree labels, and explicit language or budget coverage gaps;
-- loose-file organization leads with exact `FO-...` IDs, current Git state, and an evidence-backed destination only when one established directory is unambiguous;
+- exact file move decisions with `FO-...` IDs, required reference-update counts, and automatic keep decisions for collisions, ambiguity, changed files, ignored files, or missing evidence;
 - a direct answer to whether the workspace is generally clean.
 
-Do not dump the full raw `PD-...` inventory by default. Preserve it in the JSON evidence and summarize counts. If no strict candidate survives, say so directly instead of asking the user to guess which path should be inspected.
+Do not dump the full raw `PD-...` inventory by default. Preserve it in the JSON evidence and summarize counts. Investigate reviewable evidence yourself and apply conservative keep or preserve defaults when removal or movement is not proven. Never ask the user to decide what technical material is needed. The only user decision should be whether to authorize an exact mutation already recommended by Triage.
 
 State these boundaries explicitly:
 
@@ -125,7 +128,7 @@ State these boundaries explicitly:
 - `PD-...` discovery IDs cannot authorize removal.
 - `PC-...` and `GC-...` candidates require their separate Apply commands and explicit approval.
 - `DC-...` IDs are review handles only and cannot authorize either Apply lane.
-- `FO-...` IDs are review handles only and cannot authorize either Apply lane.
+- `FO-...` IDs record automatic move-or-keep decisions and cannot authorize either Apply lane.
 - Both Apply lanes re-inspect and refuse stale or changed evidence.
 
 ## Analyze tracked code conservatively
@@ -147,7 +150,7 @@ State these boundaries explicitly:
 - Path Apply and Git Apply must reject `DC-...` IDs.
 - Removing tracked code requires a separate explicit edit request, semantic context review, and relevant build/test validation; it is not supported by automated Apply.
 
-## Review file organization without moving anything
+## Decide file organization without moving anything
 
 Run the bundled organizer directly only when the user requests file-organization detail or when diagnosing Triage:
 
@@ -155,14 +158,14 @@ Run the bundled organizer directly only when the user requests file-organization
 python scripts/analyze_file_organization.py --workspace <folder-or-exact-git-worktree-root> --format json
 ```
 
-The organizer reads only loose regular files at the workspace root and compares recognizable documentation, image, script, test, and example files with established top-level directories. Protect control files, project manifests, lockfiles, standard repository documents, dotfiles, and common root entrypoints. Suggest an exact destination only when one matching directory already exists. Report multiple matching directories, existing destination collisions, tracked changes, untracked state, and ignored state instead of guessing intent.
+The organizer reads only loose regular files at the workspace root and compares recognizable documentation, image, script, test, and example files with established top-level directories. Protect control files, project manifests, lockfiles, standard repository documents, dotfiles, and common root entrypoints. Recommend an exact move when one matching directory exists, the destination is absent, Git state is tracked-clean or untracked, and repository path references were checked. Include the number of references that must be updated with the move.
 
-Treat every `FO-...` result as `review`. The analyzer fingerprints current content and makes no moves. Before moving any file, search semantic references and build, package, documentation, test, CI, and runtime context; then require an explicit edit request and relevant validation. Neither automated Apply lane supports file moves.
+Automatically keep a file at its current location when multiple destinations match, the destination collides, content is changed or ignored, Git state is unknown, or reference evidence failed. Do not ask the user to select a directory or interpret the evidence. The analyzer fingerprints current content and makes no moves. A recommended move requires a separate explicit edit request, automatic reference updates, and relevant validation. Neither automated Apply lane supports file moves.
 
 State these boundaries explicitly:
 
 - File-organization analysis made no filesystem or Git mutations.
-- `FO-...` IDs are state-bound review handles, not move authorization.
+- `FO-...` IDs are state-bound decision handles, not move authorization.
 - Path Apply and Git Apply must reject `FO-...` IDs.
 - Moving tracked or untracked files requires a separate explicit edit request, semantic reference updates, and relevant validation.
 
