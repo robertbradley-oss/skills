@@ -13,10 +13,12 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from discover_repository import markdown_cell
-from inspect_repository import decode_path, is_reserved_path, run_git
+from inspect_repository import (
+    decode_path, is_reserved_path, repository_reference_evidence, run_git,
+)
 
 
-OUTPUT_SCHEMA = "clean-up-file-organization/v1"
+OUTPUT_SCHEMA = "clean-up-file-organization/v2"
 ROLE_DESTINATIONS = {
     "documentation": ("docs",),
     "image": ("assets", "images", "references"),
@@ -127,6 +129,7 @@ def file_state(relative: str, scope_type: str, states: dict[str, set[str]]) -> s
 
 def stable_id(
     path: str, role: str, destinations: list[str], sha256: str, git_state: str,
+    references: dict[str, Any] | None,
 ) -> str:
     material = json.dumps(
         {
@@ -136,6 +139,7 @@ def stable_id(
             "destinations": destinations,
             "sha256": sha256,
             "git_state": git_state,
+            "references": references,
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -212,17 +216,58 @@ def analyze_file_organization(
             f"{suggested_directory}/{relative}" if suggested_directory is not None else None
         )
         collision = bool(suggested_path and (root / suggested_path).exists())
-        reason = (
-            f"The loose root {role} file matches the repository's established "
-            f"{suggested_directory}/ directory."
-            if suggested_directory is not None else
-            f"The loose root {role} file matches multiple established directories: "
-            f"{', '.join(candidate_directories)}. Semantic intent must select the destination."
-        )
-        if collision:
-            reason += " The suggested destination already exists and must be compared before any move."
+        references: dict[str, Any] | None = None
+        reference_error: str | None = None
+        if scope_type == "git-repository" and suggested_path is not None:
+            references, reference_error = repository_reference_evidence(root, relative)
+        if reference_error:
+            warnings.append({
+                "code": "organization-reference-check-failed",
+                "message": f"{relative}: {reference_error}",
+            })
+        if suggested_directory is None:
+            classification = "keep"
+            proposed_action = "none"
+            reason = (
+                f"Keep at the current location: the loose root {role} file matches multiple "
+                f"established directories ({', '.join(candidate_directories)}), so no unique "
+                "destination is proven."
+            )
+        elif collision:
+            classification = "keep"
+            proposed_action = "none"
+            reason = (
+                f"Keep at the current location: {suggested_path} already exists, so an automatic "
+                "move could overwrite or conflate distinct content."
+            )
+        elif state not in {"tracked-clean", "untracked"}:
+            classification = "keep"
+            proposed_action = "none"
+            reason = (
+                f"Keep at the current location: the file is {state}, and organization must not "
+                "relocate changed, ignored, unknown, or non-Git content automatically."
+            )
+        elif reference_error:
+            classification = "keep"
+            proposed_action = "none"
+            reason = (
+                "Keep at the current location: repository references could not be checked reliably."
+            )
+        else:
+            classification = "move-recommended"
+            proposed_action = "move-file-with-reference-updates"
+            reference_count = int((references or {}).get("match_count", 0))
+            reference_note = (
+                f" Update {reference_count} repository path reference(s) as part of the move."
+                if reference_count else " No repository path references require updates."
+            )
+            reason = (
+                f"Move to {suggested_path}: this is a cleanly classifiable loose root {role} file, "
+                f"the repository has one established {suggested_directory}/ destination, and no "
+                f"destination collision exists.{reference_note}"
+            )
         findings.append({
-            "id": stable_id(relative, role, candidate_directories, digest, state),
+            "id": stable_id(relative, role, candidate_directories, digest, state, references),
             "surface": "file-organization",
             "path": relative,
             "role": role,
@@ -232,10 +277,11 @@ def analyze_file_organization(
             "candidate_directories": candidate_directories,
             "suggested_destination": suggested_path,
             "destination_collision": collision,
+            "references": references,
             "signal": "loose-root-file",
-            "confidence": "moderate" if suggested_directory is not None and not collision else "weak",
-            "classification": "review",
-            "proposed_action": "none",
+            "confidence": "strong" if classification == "move-recommended" else "moderate",
+            "classification": classification,
+            "proposed_action": proposed_action,
             "reason": reason,
         })
 
@@ -268,11 +314,18 @@ def analyze_file_organization(
             "eligible_files_scanned": scanned_files,
             "eligible_bytes_scanned": scanned_bytes,
             "finding_count": len(findings),
+            "move_recommended_count": sum(
+                item["classification"] == "move-recommended" for item in findings
+            ),
+            "kept_count": sum(item["classification"] == "keep" for item in findings),
             "scan_truncated": truncated,
             "unreadable_files": len(unreadable),
             "coverage_complete": not coverage_gaps and not warnings,
         },
-        "review_required": bool(findings or coverage_gaps or warnings),
+        "review_required": bool(
+            any(item["classification"] == "move-recommended" for item in findings)
+            or coverage_gaps or warnings
+        ),
         "proposed_authorization_set": [],
     }
 
@@ -282,13 +335,13 @@ def render_markdown(result: dict[str, Any]) -> str:
         "# Clean Up file-organization analysis", "",
         f"Workspace: `{markdown_cell(result['workspace'])}`",
         "Mutations: `none`", "Apply supported: `no`", "",
-        "| Review ID | Loose file | Role | Git state | Suggested destination |",
+        "| ID | Loose file | Decision | Git state | Destination |",
         "|---|---|---|---|---|",
     ]
     for item in result["findings"]:
         destination = item["suggested_destination"] or "review destination options"
         lines.append(
-            f"| `{item['id']}` | `{markdown_cell(item['path'])}` | `{item['role']}` | "
+            f"| `{item['id']}` | `{markdown_cell(item['path'])}` | `{item['classification']}` | "
             f"`{item['git_state']}` | `{markdown_cell(destination)}` |"
         )
     if not result["findings"]:
@@ -301,8 +354,8 @@ def render_markdown(result: dict[str, Any]) -> str:
         )
     lines.extend([
         "", "File-organization analysis made no filesystem or Git mutations.",
-        "FO IDs are review handles only and cannot authorize path or Git Apply.",
-        "Moving files requires semantic reference review, an explicit edit request, and relevant validation.",
+        "FO IDs record automatic move-or-keep decisions but cannot authorize path or Git Apply.",
+        "A recommended move requires only an explicit edit request and relevant validation; the user is not asked to decide organization intent.",
     ])
     return "\n".join(lines) + "\n"
 
