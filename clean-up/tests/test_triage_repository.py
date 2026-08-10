@@ -58,7 +58,7 @@ class TriageRepositoryTests(unittest.TestCase):
 
             result = triage(root, None, 50)
 
-            self.assertEqual(result["schema"], "clean-up-triage/v5")
+            self.assertEqual(result["schema"], "clean-up-triage/v6")
             self.assertFalse(result["mutations_performed"])
             self.assertEqual(result["verdict"], "cleanup-recommended")
             self.assertIn("prevent a fully clean verdict", result["headline"])
@@ -94,6 +94,48 @@ class TriageRepositoryTests(unittest.TestCase):
             self.assertEqual(result["proposed_authorization_set"], [])
             draft = next(item for item in result["unresolved"] if item["target"] == "important-draft.txt")
             self.assertIn("preserved", draft["reason"])
+
+    def test_node_next_and_typescript_are_covered_in_one_broad_triage(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.repository(Path(temporary), outputs=0)
+            (root / ".gitignore").write_text(
+                "node_modules/\n.next/\nnext-env.d.ts\n", encoding="ascii",
+            )
+            (root / "package.json").write_text(
+                '{"name":"fixture","private":true,"dependencies":{"next":"15.0.0"}}\n',
+                encoding="ascii",
+            )
+            (root / "package-lock.json").write_text(
+                '{"name":"fixture","lockfileVersion":3}\n', encoding="ascii",
+            )
+            source = root / "src" / "helper.tsx"
+            source.parent.mkdir()
+            source.write_text(
+                "function unusedHelper() { return <span />; }\n", encoding="ascii",
+            )
+            self.git(
+                root, "add", ".gitignore", "package.json", "package-lock.json", "src/helper.tsx",
+            )
+            self.git(root, "commit", "-qm", "add next fixture")
+            for directory in ("node_modules", ".next"):
+                output = root / directory
+                output.mkdir()
+                (output / "generated.bin").write_bytes(b"generated")
+            (root / "next-env.d.ts").write_text(
+                '/// <reference types="next" />\n', encoding="ascii",
+            )
+
+            result = triage(root, None, 50)
+            candidates = {item["path"]: item for item in result["safe_to_remove"]}
+
+            self.assertEqual(result["verdict"], "cleanup-recommended")
+            self.assertEqual(set(candidates), {"node_modules", ".next", "next-env.d.ts"})
+            self.assertTrue(all(
+                item["candidate_kind"] == "ignored-generated" for item in candidates.values()
+            ))
+            self.assertEqual([item["symbol"] for item in result["tracked_code"]], ["unusedHelper"])
+            self.assertEqual(result["tracked_code_coverage"], [])
+            self.assertEqual(result["summary"]["tracked_code_coverage_gap_count"], 0)
 
     def test_newest_remote_release_is_kept_from_synthetic_inspection_evidence(self) -> None:
         lead = {"id": "PD-0123456789AB", "reason": "release review"}

@@ -17,19 +17,26 @@ from discover_repository import markdown_cell
 from inspect_repository import decode_path, is_reserved_path, run_git
 
 
-OUTPUT_SCHEMA = "clean-up-tracked-code/v2"
-SUPPORTED_DECLARATION_EXTENSIONS = {".cs": "csharp", ".ps1": "powershell"}
+OUTPUT_SCHEMA = "clean-up-tracked-code/v3"
+SUPPORTED_DECLARATION_EXTENSIONS = {
+    ".cs": "csharp", ".ps1": "powershell", ".ts": "typescript", ".tsx": "typescript",
+}
 REFERENCE_EXTENSIONS = {
-    ".axaml", ".config", ".cs", ".csproj", ".json", ".props", ".razor",
-    ".ps1", ".psd1", ".psm1", ".resx", ".targets", ".xaml", ".xml",
+    ".axaml", ".cjs", ".config", ".cs", ".csproj", ".js", ".json", ".jsx",
+    ".mjs", ".props", ".razor", ".ps1", ".psd1", ".psm1", ".resx", ".targets",
+    ".ts", ".tsx", ".xaml", ".xml",
 }
 OTHER_SOURCE_EXTENSIONS = {
     ".c", ".cc", ".cpp", ".fs", ".go", ".h", ".hpp", ".java",
     ".js", ".jsx", ".kt", ".kts", ".php", ".psm1", ".py", ".rb", ".rs",
-    ".sh", ".swift", ".ts", ".tsx", ".vb",
+    ".sh", ".swift", ".vb",
 }
 GENERATED_CSHARP_SUFFIXES = (".designer.cs", ".g.cs", ".g.i.cs", ".generated.cs")
+GENERATED_TYPESCRIPT_SUFFIXES = (".d.ts", ".generated.ts", ".generated.tsx")
 TOKEN_RE = re.compile(r"(?<![A-Za-z0-9_])@?[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_])")
+TYPESCRIPT_TOKEN_RE = re.compile(
+    r"(?<![A-Za-z0-9_$])[A-Za-z_$][A-Za-z0-9_$]*(?![A-Za-z0-9_$])"
+)
 POWERSHELL_TOKEN_RE = re.compile(
     r"(?<![A-Za-z0-9_-])[A-Za-z_][A-Za-z0-9_-]*(?![A-Za-z0-9_-])",
     flags=re.IGNORECASE,
@@ -37,6 +44,27 @@ POWERSHELL_TOKEN_RE = re.compile(
 POWERSHELL_FUNCTION_RE = re.compile(
     r"^\s*function\s+(?:(?:global|local|private|script):)?(?P<name>[A-Za-z_][A-Za-z0-9_-]*)\b",
     flags=re.IGNORECASE,
+)
+TYPESCRIPT_TOP_LEVEL_RE = re.compile(
+    r"^(?:(?:async|abstract)\s+)*(?P<kind>function|class|interface|type|enum)\s+"
+    r"(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\b"
+)
+TYPESCRIPT_TOP_LEVEL_VARIABLE_RE = re.compile(
+    r"^(?P<kind>const|let)\s+(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*"
+    r"(?:[?!]?\s*:[^=]+)?="
+)
+TYPESCRIPT_PRIVATE_METHOD_RE = re.compile(
+    r"^\s*private\s+(?:(?:static|async|abstract|override|readonly)\s+)*"
+    r"(?:(?:get|set)\s+)?(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*"
+    r"(?:<[^>{};()]+>)?\s*\("
+)
+TYPESCRIPT_PRIVATE_FIELD_RE = re.compile(
+    r"^\s*private\s+(?:(?:static|declare|override|readonly)\s+)*"
+    r"(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)[?!]?\s*(?::|=|;)"
+)
+TYPESCRIPT_HASH_MEMBER_RE = re.compile(
+    r"^\s*#(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)[?!]?\s*"
+    r"(?:<[^>{};()]+>\s*)?(?P<marker>\(|:|=|;)"
 )
 TYPE_DECLARATION_RE = re.compile(r"\b(?:class|record|struct|interface|enum|delegate)\b")
 METHOD_RE = re.compile(
@@ -200,6 +228,95 @@ def powershell_declarations(relative: str, text: str, digest: str) -> list[dict[
     return declarations
 
 
+def typescript_decorator_context(lines: list[str], index: int) -> bool:
+    cursor = index - 1
+    while cursor >= 0 and not lines[cursor].strip():
+        cursor -= 1
+    return cursor >= 0 and lines[cursor].lstrip().startswith("@")
+
+
+def typescript_declarations(relative: str, text: str, digest: str) -> list[dict[str, Any]]:
+    lowered = relative.lower()
+    if lowered.endswith(GENERATED_TYPESCRIPT_SUFFIXES) or "@generated" in text[:1000].lower():
+        return []
+    declarations: list[dict[str, Any]] = []
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("//", "/*", "*", "export ", "import ")):
+            continue
+        match = TYPESCRIPT_PRIVATE_METHOD_RE.match(line)
+        kind = "method"
+        private_member = match is not None
+        if match is None:
+            match = TYPESCRIPT_PRIVATE_FIELD_RE.match(line)
+            kind = "field"
+            private_member = match is not None
+        if match is None:
+            match = TYPESCRIPT_HASH_MEMBER_RE.match(line)
+            if match is not None:
+                kind = "method" if match.group("marker") == "(" else "field"
+                private_member = True
+        if match is None and line == line.lstrip():
+            match = TYPESCRIPT_TOP_LEVEL_RE.match(line)
+            if match is not None:
+                kind = match.group("kind")
+                private_member = False
+        if match is None and line == line.lstrip():
+            match = TYPESCRIPT_TOP_LEVEL_VARIABLE_RE.match(line)
+            if match is not None:
+                kind = "variable"
+                private_member = False
+        if match is None:
+            continue
+        name = match.group("name")
+        if name == "constructor" or typescript_decorator_context(lines, index):
+            continue
+        declarations.append({
+            "language": "typescript",
+            "path": relative,
+            "line": index + 1,
+            "kind": kind,
+            "name": name,
+            "file_sha256": digest,
+            "declaration": stripped[:300],
+            "private_member": private_member,
+        })
+    return declarations
+
+
+def declaration_signal(declaration: dict[str, Any]) -> str:
+    language = declaration["language"]
+    if language == "powershell":
+        return "unreferenced-script-function"
+    if language == "typescript" and not declaration.get("private_member"):
+        return "unreferenced-typescript-declaration"
+    return "unreferenced-private-member"
+
+
+def declaration_reason(declaration: dict[str, Any], changed_file: bool) -> str:
+    language = declaration["language"]
+    if language == "csharp":
+        reason = (
+            "The private C# member appears only at its declaration in the bounded tracked reference corpus. "
+            "Reflection, generated access, framework conventions, or unsupported-language callers are not disproven."
+        )
+    elif language == "powershell":
+        reason = (
+            "The PowerShell function name appears only at its declaration in the bounded tracked reference corpus. "
+            "External invocation, dot-sourcing, generated calls, or dynamic command construction are not disproven."
+        )
+    else:
+        reason = (
+            "The unexported or explicitly private TypeScript declaration appears only at its declaration in the "
+            "bounded tracked JavaScript and TypeScript reference corpus. Framework file conventions, dynamic "
+            "imports, generated access, templates, and external callers are not disproven."
+        )
+    if changed_file:
+        reason += " The declaration is in modified worktree content and may be intentionally in progress."
+    return reason
+
+
 def analyze_tracked_code(
     workspace: Path, max_files: int = 5000, max_bytes: int = 64 * 1024 * 1024,
 ) -> dict[str, Any]:
@@ -231,6 +348,7 @@ def analyze_tracked_code(
     corpus = hashlib.sha256()
     token_counts: Counter[str] = Counter()
     powershell_token_counts: Counter[str] = Counter()
+    typescript_token_counts: Counter[str] = Counter()
     declarations: list[dict[str, Any]] = []
     scanned_files = 0
     scanned_bytes = 0
@@ -272,13 +390,16 @@ def analyze_tracked_code(
         corpus.update(data)
         token_counts.update(match.group(0).removeprefix("@") for match in TOKEN_RE.finditer(text))
         powershell_token_counts.update(match.group(0).casefold() for match in POWERSHELL_TOKEN_RE.finditer(text))
+        typescript_token_counts.update(match.group(0) for match in TYPESCRIPT_TOKEN_RE.finditer(text))
         if suffix in SUPPORTED_DECLARATION_EXTENSIONS:
             if relative in changed_set:
                 changed_supported.append(relative)
             if suffix == ".cs":
                 declarations.extend(csharp_declarations(relative, text, file_sha256(data)))
-            else:
+            elif suffix == ".ps1":
                 declarations.extend(powershell_declarations(relative, text, file_sha256(data)))
+            else:
+                declarations.extend(typescript_declarations(relative, text, file_sha256(data)))
 
     corpus_digest = corpus.hexdigest()
     safe_to_report = not warnings and not truncated and not unreadable
@@ -286,11 +407,12 @@ def analyze_tracked_code(
     if safe_to_report:
         for declaration in declarations:
             changed_file = declaration["path"] in changed_set
-            occurrences = (
-                token_counts.get(declaration["name"], 0)
-                if declaration["language"] == "csharp"
-                else powershell_token_counts.get(declaration["name"].casefold(), 0)
-            )
+            if declaration["language"] == "csharp":
+                occurrences = token_counts.get(declaration["name"], 0)
+            elif declaration["language"] == "powershell":
+                occurrences = powershell_token_counts.get(declaration["name"].casefold(), 0)
+            else:
+                occurrences = typescript_token_counts.get(declaration["name"], 0)
             if occurrences != 1:
                 continue
             evidence = {
@@ -317,30 +439,15 @@ def analyze_tracked_code(
                 "symbol": declaration["name"],
                 "kind": declaration["kind"],
                 "git_state": "tracked-changed" if changed_file else "tracked-clean",
-                "signal": (
-                    "unreferenced-private-member"
-                    if declaration["language"] == "csharp"
-                    else "unreferenced-script-function"
-                ),
+                "signal": declaration_signal(declaration),
                 "confidence": (
-                    "weak" if changed_file or declaration["language"] == "powershell" else "moderate"
+                    "weak"
+                    if changed_file or declaration["language"] in {"powershell", "typescript"}
+                    else "moderate"
                 ),
                 "classification": "review",
                 "proposed_action": "none",
-                "reason": (
-                    (
-                        "The private C# member appears only at its declaration in the bounded tracked reference corpus. "
-                        "Reflection, generated access, framework conventions, or unsupported-language callers are not disproven."
-                    )
-                    if declaration["language"] == "csharp" else
-                    (
-                        "The PowerShell function name appears only at its declaration in the bounded tracked reference corpus. "
-                        "External invocation, dot-sourcing, generated calls, or dynamic command construction are not disproven."
-                    )
-                ) + (
-                    " The declaration is in modified worktree content and may be intentionally in progress."
-                    if changed_file else ""
-                ),
+                "reason": declaration_reason(declaration, changed_file),
                 "declaration": declaration["declaration"],
                 "evidence": evidence,
             })

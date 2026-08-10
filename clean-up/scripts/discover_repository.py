@@ -20,7 +20,7 @@ from inspect_repository import (
 )
 
 
-OUTPUT_SCHEMA = "clean-up-discovery/v2"
+OUTPUT_SCHEMA = "clean-up-discovery/v3"
 PROTECTED_BRANCHES = {
     "develop", "development", "main", "master", "prod", "production",
     "release", "stable", "trunk",
@@ -32,6 +32,7 @@ GENERATED_COMPONENTS = {
     "artifacts", "bin", "build", "coverage", "dist", "node_modules", "obj",
     "out", "release", "target", "temp", "tmp", "vendor",
 }
+GENERATED_NAMES = {"next-env.d.ts"}
 TEMPORARY_SUFFIXES = {
     ".bak", ".cache", ".dmp", ".log", ".old", ".orig", ".rej", ".swp", ".temp", ".tmp",
 }
@@ -140,7 +141,7 @@ def path_signal(path: str, ignored: bool) -> tuple[str, str, str]:
     parts = [part.lower() for part in PurePosixPath(path).parts]
     name = PurePosixPath(path).name
     suffix = PurePosixPath(path).suffix.lower()
-    generated = any(part in GENERATED_COMPONENTS for part in parts)
+    generated = name.lower() in GENERATED_NAMES or any(part in GENERATED_COMPONENTS for part in parts)
     temporary = name.lower() in TEMPORARY_NAMES_LOWER or suffix in TEMPORARY_SUFFIXES
     if generated:
         return (

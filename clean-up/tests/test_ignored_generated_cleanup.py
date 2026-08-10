@@ -30,7 +30,7 @@ class IgnoredGeneratedFixture(unittest.TestCase):
         self.git("config", "user.email", "clean-up@example.invalid")
         self.git("config", "user.name", "Clean Up Tests")
         (self.workspace / ".gitignore").write_text(
-            "**/bin/\n**/obj/\nartifacts/\nscratch-cache/\n",
+            "**/bin/\n**/obj/\n.next/\nnode_modules/\nnext-env.d.ts\nartifacts/\nscratch-cache/\n",
             encoding="utf-8",
         )
         project = self.workspace / "src" / "App" / "App.csproj"
@@ -75,6 +75,22 @@ class IgnoredGeneratedFixture(unittest.TestCase):
         output.mkdir(parents=True, exist_ok=True)
         (output / "generated.bin").write_bytes(content)
         return output
+
+    def create_node_project(self, nextjs: bool = True, lockfile: bool = True) -> None:
+        dependencies = ', "dependencies": {"next": "15.0.0"}' if nextjs else ""
+        (self.workspace / "package.json").write_text(
+            '{"name": "fixture", "private": true' + dependencies + "}\n",
+            encoding="utf-8",
+        )
+        paths = ["package.json"]
+        if lockfile:
+            (self.workspace / "package-lock.json").write_text(
+                '{"name":"fixture","lockfileVersion":3,"packages":{"node_modules/next":{}}}\n',
+                encoding="utf-8",
+            )
+            paths.append("package-lock.json")
+        self.git("add", *paths)
+        self.git("commit", "-qm", "add node project")
 
     def create_directory_link(self, link: Path, target: Path) -> None:
         if os.name != "nt":
@@ -144,6 +160,83 @@ class IgnoredGeneratedInspectTests(IgnoredGeneratedFixture):
             self.assertIsNone(item["candidate_kind"])
             self.assertIn("Ignored status alone", item["reason"])
         self.assertEqual(result["provisional_authorization_set"], [])
+
+    def test_ignored_node_and_next_outputs_are_typed_candidates_with_lockfile_proof(self) -> None:
+        self.create_node_project()
+        (self.workspace / "tsconfig.json").write_text(
+            '{"include":["next-env.d.ts",".next/types/**/*.ts"],"exclude":["node_modules"]}\n',
+            encoding="utf-8",
+        )
+        (self.workspace / "eslint.config.mjs").write_text(
+            'export default [{ ignores: [".next/**", "next-env.d.ts"] }];\n',
+            encoding="utf-8",
+        )
+        self.git("add", "tsconfig.json", "eslint.config.mjs")
+        self.git("commit", "-qm", "add next configuration")
+        self.create_output("node_modules")
+        self.create_output(".next")
+        (self.workspace / "next-env.d.ts").write_text(
+            '/// <reference types="next" />\n', encoding="utf-8",
+        )
+
+        result = self.inspect(["node_modules", ".next", "next-env.d.ts"])
+        decisions = {item["path"]: item for item in result["items"]}
+
+        self.assertEqual(len(result["provisional_authorization_set"]), 3)
+        for path, item in decisions.items():
+            self.assertEqual(item["classification"], "candidate", path)
+            self.assertEqual(item["candidate_kind"], "ignored-generated")
+            context = item["evidence"]["generated_context"]
+            self.assertEqual(context["tracked_package"]["path"], "package.json")
+            self.assertEqual(
+                [lockfile["path"] for lockfile in context["tracked_lockfiles"]],
+                ["package-lock.json"],
+            )
+            self.assertGreater(
+                item["evidence"]["references"]["generated_metadata_match_count"], 0,
+            )
+        self.assertEqual(
+            decisions["node_modules"]["evidence"]["generated_context"]["kind"],
+            "node-dependency-install",
+        )
+        self.assertEqual(
+            decisions[".next"]["evidence"]["generated_context"]["kind"],
+            "nextjs-generated-output",
+        )
+
+    def test_node_output_requires_tracked_package_and_lockfile_evidence(self) -> None:
+        self.create_node_project(lockfile=False)
+        self.create_output("node_modules")
+
+        item = self.inspect(["node_modules"])["items"][0]
+
+        self.assertEqual(item["classification"], "review")
+        self.assertIsNone(item["candidate_kind"])
+        self.assertIsNone(item["evidence"]["generated_context"])
+
+    def test_next_output_requires_a_tracked_next_dependency(self) -> None:
+        self.create_node_project(nextjs=False)
+        self.create_output(".next")
+
+        item = self.inspect([".next"])["items"][0]
+
+        self.assertEqual(item["classification"], "review")
+        self.assertIsNone(item["candidate_kind"])
+        self.assertIsNone(item["evidence"]["generated_context"])
+
+    def test_referenced_node_output_stays_review_only(self) -> None:
+        self.create_node_project()
+        self.create_output("node_modules")
+        (self.workspace / "README.md").write_text(
+            "Keep node_modules for the offline demo.\n", encoding="utf-8",
+        )
+        self.git("add", "README.md")
+        self.git("commit", "-qm", "retain offline dependencies")
+
+        item = self.inspect(["node_modules"])["items"][0]
+
+        self.assertEqual(item["classification"], "review")
+        self.assertGreater(item["evidence"]["references"]["match_count"], 0)
 
     def test_ignored_generated_root_with_tracked_modified_descendant_is_review(self) -> None:
         self.create_project("Mixed")
@@ -368,6 +461,40 @@ class IgnoredGeneratedApplyTests(IgnoredGeneratedFixture):
         self.assertFalse(bin_path.exists())
         self.assertFalse(obj_path.exists())
         self.assertEqual(result["recovery"]["status"], "discarded")
+
+    def test_node_and_next_candidates_apply_through_the_same_guarded_lane(self) -> None:
+        self.create_node_project()
+        node_modules = self.create_output("node_modules")
+        next_output = self.create_output(".next")
+        next_env = self.workspace / "next-env.d.ts"
+        next_env.write_text('/// <reference types="next" />\n', encoding="utf-8")
+        paths = ["node_modules", ".next", "next-env.d.ts"]
+        inspection = self.inspect(paths)
+
+        result, exit_code = self.apply(paths, inspection["provisional_authorization_set"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(result["status"], "completed")
+        self.assertFalse(node_modules.exists())
+        self.assertFalse(next_output.exists())
+        self.assertFalse(next_env.exists())
+        self.assertEqual(result["recovery"]["status"], "discarded")
+
+    def test_changed_node_lockfile_invalidates_approved_candidate(self) -> None:
+        self.create_node_project()
+        node_modules = self.create_output("node_modules")
+        item = self.inspect(["node_modules"])["items"][0]
+        (self.workspace / "package-lock.json").write_text(
+            '{"name":"fixture","lockfileVersion":3,"changed":true}\n',
+            encoding="utf-8",
+        )
+
+        result, exit_code = self.apply(["node_modules"], [item["id"]])
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(result["status"], "refused")
+        self.assertTrue(node_modules.is_dir())
+        self.assertIn("approval-not-current", {refusal["code"] for refusal in result["refusals"]})
 
     def test_empty_directory_can_apply_and_nonempty_change_refuses(self) -> None:
         empty = self.workspace / "tmp"

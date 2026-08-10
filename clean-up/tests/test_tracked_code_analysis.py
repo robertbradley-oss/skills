@@ -55,7 +55,7 @@ class Sample
             result = analyze_tracked_code(root)
             findings = {item["symbol"]: item for item in result["findings"]}
 
-            self.assertEqual(result["schema"], "clean-up-tracked-code/v2")
+            self.assertEqual(result["schema"], "clean-up-tracked-code/v3")
             self.assertFalse(result["mutations_performed"])
             self.assertFalse(result["apply_supported"])
             self.assertEqual(set(findings), {"unusedField", "Unused"})
@@ -169,6 +169,80 @@ invoke-used
             self.assertTrue(finding["evidence"]["changed_file"])
             self.assertEqual(finding["classification"], "review")
             self.assertTrue(result["summary"]["coverage_complete"])
+
+    def test_typescript_and_tsx_emit_only_conservative_unreferenced_leads(self) -> None:
+        source = """function usedHelper() { return 1; }
+function unusedHelper() { return 2; }
+const UsedComponent = () => <span>{usedHelper()}</span>;
+const unusedValue = 3;
+export function exportedHandler() { return 4; }
+
+class Worker {
+    private usedMethod() { return 1; }
+    private unusedMethod() { return 2; }
+    #unusedSecret = 3;
+    @frameworkManaged()
+    private decoratedOnly() { return 4; }
+    run() { return this.usedMethod(); }
+}
+
+export const worker = new Worker();
+export default function Page() { return <UsedComponent />; }
+"""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.repository(Path(temporary), {"src/page.tsx": source})
+
+            result = analyze_tracked_code(root)
+            findings = {item["symbol"]: item for item in result["findings"]}
+
+            self.assertEqual(set(findings), {"unusedHelper", "unusedValue", "unusedMethod", "unusedSecret"})
+            self.assertEqual(result["summary"]["supported_languages"], {"typescript": 1})
+            self.assertEqual(result["summary"]["unsupported_extensions"], {})
+            self.assertTrue(result["summary"]["coverage_complete"])
+            self.assertTrue(all(item["confidence"] == "weak" for item in findings.values()))
+            self.assertTrue(all(item["classification"] == "review" for item in findings.values()))
+            self.assertEqual(findings["unusedMethod"]["signal"], "unreferenced-private-member")
+            self.assertEqual(
+                findings["unusedHelper"]["signal"], "unreferenced-typescript-declaration",
+            )
+
+    def test_typescript_references_cross_ts_and_js_and_generated_declarations_are_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.repository(Path(temporary), {
+                "src/helper.ts": "function sharedHelper() { return 1; }\n",
+                "src/use.js": "console.log(sharedHelper());\n",
+                "next-env.d.ts": "declare function generatedOnly(): void;\n",
+            })
+
+            result = analyze_tracked_code(root)
+
+            self.assertNotIn("sharedHelper", {item["symbol"] for item in result["findings"]})
+            self.assertNotIn("generatedOnly", {item["symbol"] for item in result["findings"]})
+            self.assertEqual(result["summary"]["supported_languages"], {"typescript": 2})
+            self.assertEqual(result["summary"]["unsupported_extensions"], {".js": 1})
+
+    def test_modified_typescript_is_analyzed_and_state_bound(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.repository(Path(temporary), {"src/helper.ts": "export const value = 1;\n"})
+            (root / "src" / "helper.ts").write_text(
+                "function unfinishedHelper() { return 1; }\n", encoding="ascii",
+            )
+
+            changed = analyze_tracked_code(root)
+            finding = changed["findings"][0]
+
+            self.assertEqual(finding["symbol"], "unfinishedHelper")
+            self.assertEqual(finding["git_state"], "tracked-changed")
+            self.assertTrue(finding["evidence"]["changed_file"])
+            self.assertIn("modified worktree content", finding["reason"])
+            changed_id = finding["id"]
+
+            self.git(root, "add", "src/helper.ts")
+            self.git(root, "commit", "-qm", "accept helper")
+            clean = analyze_tracked_code(root)
+
+            self.assertEqual(clean["findings"][0]["git_state"], "tracked-clean")
+            self.assertNotEqual(changed_id, clean["findings"][0]["id"])
 
     def test_control_files_and_generated_csharp_are_not_declaration_sources(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
