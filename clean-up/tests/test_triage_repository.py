@@ -12,7 +12,9 @@ sys.path.insert(0, str(SKILL_ROOT / "scripts"))
 
 from apply_cleanup import preflight  # noqa: E402
 from inspect_repository import inspect  # noqa: E402
-from triage_repository import decision_for_inspection, render_markdown, triage  # noqa: E402
+from triage_repository import (  # noqa: E402
+    decision_for_inspection, path_role_keep_reason, render_markdown, triage,
+)
 
 
 class TriageRepositoryTests(unittest.TestCase):
@@ -105,6 +107,25 @@ class TriageRepositoryTests(unittest.TestCase):
         self.assertEqual(decision["decision"], "keep")
         self.assertIn("newest two", decision["reason"])
 
+    def test_unpublished_legacy_release_is_kept_as_the_only_verified_copy(self) -> None:
+        lead = {"id": "PD-0123456789AB", "reason": "release review"}
+        item = {
+            "classification": "review", "candidate_kind": None,
+            "proposed_action": "none",
+            "reason": "No single published stable GitHub release matches the manifest Version",
+            "evidence": {
+                "release_retention": {
+                    "eligible": False,
+                    "reason": "No single published stable GitHub release matches the manifest Version",
+                },
+            },
+        }
+
+        decision = decision_for_inspection(lead, item)
+
+        self.assertEqual(decision["decision"], "keep")
+        self.assertIn("remote recovery is not proven", decision["reason"])
+
     def test_candidate_shaped_discovery_id_cannot_enter_safe_to_remove(self) -> None:
         lead = {"id": "PD-0123456789AB", "reason": "generated review"}
         item = {
@@ -156,6 +177,68 @@ class TriageRepositoryTests(unittest.TestCase):
             self.assertEqual(result["verdict"], "review-remains")
             self.assertFalse(any(item["code"] == "git-unavailable" for item in result["warnings"]))
             self.assertEqual(result["safe_to_remove"], [])
+
+    def test_structured_artifacts_references_and_installer_source_are_concrete_keeps(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.repository(Path(temporary), outputs=0)
+            (root / ".gitignore").write_text("**/bin/\nartifacts/\n", encoding="ascii")
+            self.git(root, "add", ".gitignore")
+            self.git(root, "commit", "-qm", "ignore evidence archive")
+            for name in ("phase-1", "config-redesign"):
+                bundle = root / "artifacts" / name
+                bundle.mkdir(parents=True)
+                (bundle / "evidence.json").write_text(
+                    '{"bundle":"' + name + '"}\n', encoding="ascii",
+                )
+            (root / "references").mkdir()
+            (root / "references" / "mockup.png").write_bytes(b"reference-image")
+            (root / "installer").mkdir()
+            (root / "installer" / "setup.iss").write_text("[Setup]\n", encoding="ascii")
+
+            result = triage(root, None, 50)
+            kept = {item["path"]: item["reason"] for item in result["keep"]}
+
+            self.assertEqual(result["unresolved"], [], result["unresolved"])
+            self.assertEqual(result["verdict"], "clean")
+            self.assertIn("artifacts", kept)
+            self.assertIn("structured", kept["artifacts"])
+            self.assertIn("references", kept)
+            self.assertIn("installer", kept)
+            self.assertEqual(result["unresolved"], [])
+
+    def test_phase_documentation_duplicates_are_kept_by_semantic_path_role(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.repository(Path(temporary), outputs=0)
+            for phase in ("phase-1", "phase-2"):
+                evidence = root / "docs" / phase / "evidence"
+                evidence.mkdir(parents=True)
+                (evidence / "selected.png").write_bytes(b"same-pixels")
+            self.git(root, "add", "docs")
+            self.git(root, "commit", "-qm", "add phase evidence")
+
+            result = triage(root, None, 50)
+
+            duplicate_keeps = [item for item in result["keep"] if item["surface"] == "duplicate-set"]
+            self.assertEqual(len(duplicate_keeps), 1)
+            self.assertIn("documentation meaning", duplicate_keeps[0]["reason"])
+            self.assertEqual(result["unresolved"], [])
+            self.assertEqual(result["verdict"], "clean")
+
+    def test_versioned_release_root_is_kept_as_a_container_not_a_cleanup_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for version in ("1.0.0", "1.1.0"):
+                release = root / "release" / f"setup-{version}"
+                release.mkdir(parents=True)
+                (release / "release-manifest.json").write_text(
+                    '{"Version":"' + version + '"}\n', encoding="ascii",
+                )
+            lead = {"target": "release", "evidence": {"git": "untracked"}}
+
+            reason = path_role_keep_reason(root, lead)
+
+            self.assertIsNotNone(reason)
+            self.assertIn("child releases are triaged independently", reason)
 
 
 if __name__ == "__main__":

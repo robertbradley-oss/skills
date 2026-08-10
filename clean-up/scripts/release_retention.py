@@ -93,6 +93,64 @@ def top_level_version(manifest: dict[str, Any]) -> str | None:
     return next(iter(versions)) if len(versions) == 1 else None
 
 
+def version_key(value: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in value.split("."))
+
+
+def sibling_repository_consensus(
+    absolute: Path, target_version: str,
+) -> tuple[str | None, str | None, list[dict[str, str]]]:
+    siblings: list[Path] = []
+    try:
+        for sibling in absolute.parent.iterdir():
+            if len(siblings) >= 200:
+                return None, "Sibling release container exceeds the bounded 200-entry consensus limit", []
+            siblings.append(sibling)
+    except OSError as exc:
+        return None, f"Sibling release manifests could not be listed: {exc}", []
+    siblings.sort(key=lambda item: item.name.lower())
+    sources: list[dict[str, str]] = []
+    repositories: set[str] = set()
+    versions: set[str] = set()
+    for sibling in siblings:
+        if sibling == absolute or not sibling.is_dir() or sibling.is_symlink():
+            continue
+        manifest_path = sibling / "release-manifest.json"
+        try:
+            if (
+                not manifest_path.is_file() or manifest_path.is_symlink()
+                or manifest_path.stat().st_size > MAX_MANIFEST_BYTES
+            ):
+                continue
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(manifest, dict):
+            continue
+        version = top_level_version(manifest)
+        if (
+            version is None or version in versions
+            or version_key(version) <= version_key(target_version)
+            or version not in VERSION_IN_NAME.findall(sibling.name)
+        ):
+            continue
+        repository, error = release_repository(manifest)
+        if error or repository is None:
+            continue
+        versions.add(version)
+        repositories.add(repository)
+        sources.append({
+            "path": manifest_path.relative_to(absolute.parent).as_posix(),
+            "version": version,
+            "repository": repository,
+        })
+    if len(repositories) > 1:
+        return None, "Newer sibling manifests name conflicting GitHub release repositories", sources
+    if len(sources) < 2:
+        return None, "Fewer than two newer sibling manifests establish a GitHub release repository", sources
+    return next(iter(repositories)), None, sources
+
+
 def review(reason: str, **evidence: Any) -> dict[str, Any]:
     return {
         "kind": "github-release-asset-set", "eligible": False,
@@ -136,8 +194,19 @@ def analyze_release_directory(path: str, absolute: Path) -> dict[str, Any] | Non
     if version not in VERSION_IN_NAME.findall(path_parts[-1]):
         return review("Release directory name does not contain the manifest Version", version=version)
     repository, repository_error = release_repository(manifest)
+    repository_source = "manifest-feed"
+    repository_sources: list[dict[str, str]] = []
+    if repository_error == "Release manifest has no explicit GitHub Releases feed URL":
+        repository, repository_error, repository_sources = sibling_repository_consensus(
+            absolute, version,
+        )
+        repository_source = "sibling-manifest-consensus"
     if repository_error or repository is None:
-        return review(repository_error or "Release repository could not be resolved", version=version)
+        return review(
+            repository_error or "Release repository could not be resolved",
+            version=version, repository_source=repository_source,
+            repository_sources=repository_sources,
+        )
 
     try:
         completed = run_gh(["api", f"repos/{repository}/releases?per_page=100"])
@@ -235,6 +304,8 @@ def analyze_release_directory(path: str, absolute: Path) -> dict[str, Any] | Non
     common = {
         "version": version,
         "repository": repository,
+        "repository_source": repository_source,
+        "repository_sources": repository_sources,
         "release_tag": release.get("tag_name"),
         "release_name": release.get("name"),
         "release_url": release.get("html_url"),

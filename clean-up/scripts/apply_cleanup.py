@@ -27,6 +27,7 @@ from inspect_repository import (
     lexical_path,
     normalize_relative_path,
     target_outside_workspace,
+    temporary_residue_evidence,
 )
 
 
@@ -35,6 +36,7 @@ REPORT_SCHEMA = "clean-up-report/v2"
 ID_PATTERN = re.compile(r"^PC-[A-F0-9]{12}$")
 SUPPORTED_CANDIDATE_KINDS = {
     "empty-directory", "git-new", "ignored-generated", "remote-backed-release",
+    "temporary-residue",
 }
 
 
@@ -350,6 +352,20 @@ def preflight(inspection: dict[str, Any], approved_ids: list[str]) -> tuple[list
                 and isinstance(retention.get("newer_stable_count"), int)
                 and retention["newer_stable_count"] >= 2
                 and isinstance(retention.get("repository"), str)
+                and retention.get("repository_source") in {
+                    "manifest-feed", "sibling-manifest-consensus",
+                }
+                and (
+                    retention.get("repository_source") == "manifest-feed"
+                    or (
+                        isinstance(retention.get("repository_sources"), list)
+                        and len(retention["repository_sources"]) >= 2
+                        and len({
+                            source.get("repository") for source in retention["repository_sources"]
+                            if isinstance(source, dict)
+                        }) == 1
+                    )
+                )
                 and isinstance(retention.get("release_tag"), str)
                 and len(matches) >= 2
                 and not retention.get("unmatched_files")
@@ -370,6 +386,28 @@ def preflight(inspection: dict[str, Any], approved_ids: list[str]) -> tuple[list
                 refusals.append({
                     "code": "candidate-contract-invalid",
                     "message": f"Remote-backed release evidence is incomplete for {item['path']}",
+                })
+        elif candidate_kind == "temporary-residue":
+            ignored = evidence.get("ignored", {})
+            temporary = evidence.get("temporary_residue") or {}
+            references = evidence.get("references") or {}
+            worktree = evidence.get("worktree", {})
+            safe_git_state = (
+                worktree.get(item["path"], {}).get("code") == "??"
+                or (ignored.get("root_ignored") is True and not worktree)
+            )
+            if not (
+                item["current"].get("type") == "file"
+                and safe_git_state
+                and not evidence.get("tracked_paths")
+                and not evidence.get("base")
+                and temporary.get("kind") == "strict-temporary-name"
+                and temporary_residue_evidence(item["path"], item["current"]) == temporary
+                and references.get("match_count") == 0
+            ):
+                refusals.append({
+                    "code": "candidate-contract-invalid",
+                    "message": f"Temporary-residue evidence is incomplete for {item['path']}",
                 })
     return selected, refusals
 

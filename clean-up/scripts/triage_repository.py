@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from discover_repository import discover, evidence_text, markdown_cell
@@ -17,9 +18,49 @@ from inspect_repository import fingerprint_summary, inspect
 OUTPUT_SCHEMA = "clean-up-triage/v1"
 AUTO_INSPECT_SIGNALS = {"generated-residue", "temporary-file"}
 STRICT_CANDIDATE_KINDS = {
-    "empty-directory", "ignored-generated", "remote-backed-release",
+    "empty-directory", "ignored-generated", "remote-backed-release", "temporary-residue",
 }
 PC_ID_PATTERN = re.compile(r"^PC-[A-F0-9]{12}$")
+ARTIFACT_BUNDLE = re.compile(
+    r"^(?:phase-\d+|release-\d+(?:\.\d+){1,3}|config-[a-z0-9-]+)$",
+    flags=re.IGNORECASE,
+)
+REFERENCE_SUFFIXES = {
+    ".gif", ".jpeg", ".jpg", ".json", ".md", ".pdf", ".png", ".svg", ".webp",
+}
+EVIDENCE_SUFFIXES = {".gif", ".jpeg", ".jpg", ".json", ".png", ".svg", ".webp"}
+
+
+def bounded_regular_files(path: Path, max_entries: int = 500) -> list[Path] | None:
+    if path.is_symlink():
+        return None
+    if path.is_file():
+        return [path]
+    if not path.is_dir():
+        return None
+    files: list[Path] = []
+    scanned = 0
+    stack = [path]
+    while stack:
+        directory = stack.pop()
+        try:
+            with os.scandir(directory) as iterator:
+                for entry in iterator:
+                    scanned += 1
+                    if scanned > max_entries:
+                        return None
+                    child = Path(entry.path)
+                    if entry.is_symlink():
+                        return None
+                    if entry.is_dir(follow_symlinks=False):
+                        stack.append(child)
+                    elif entry.is_file(follow_symlinks=False):
+                        files.append(child)
+                    else:
+                        return None
+        except OSError:
+            return None
+    return files
 
 
 def current_bytes(current: dict[str, Any]) -> int:
@@ -43,6 +84,8 @@ def retained_reason(item: dict[str, Any]) -> str | None:
     reason = str(retention.get("reason") or item.get("reason") or "")
     if "current or within the two newest stable releases" in reason.lower():
         return "Keep locally: this is one of the newest two published stable releases."
+    if retention and retention.get("eligible") is False:
+        return f"Keep locally: exact remote recovery is not proven ({reason})."
     references = evidence.get("references") or {}
     match_count = references.get("match_count")
     if isinstance(match_count, int) and match_count > 0:
@@ -122,6 +165,135 @@ def unresolved_lead(lead: dict[str, Any], reason: str | None = None) -> dict[str
         "reason": reason or lead.get("reason") or "Current evidence is insufficient.",
         "evidence_summary": evidence_text(lead),
     }
+
+
+def keep_lead(lead: dict[str, Any], reason: str) -> dict[str, Any]:
+    item = unresolved_lead(lead, reason)
+    return {
+        "lead_id": item["lead_id"], "path": item["target"],
+        "surface": item["surface"], "signal": item["signal"],
+        "bytes": item["bytes"], "decision": "keep", "reason": reason,
+    }
+
+
+def structured_artifact_archive(root: Path, lead: dict[str, Any]) -> bool:
+    if lead.get("target") != "artifacts" or lead.get("evidence", {}).get("git") != "ignored":
+        return False
+    archive = root / "artifacts"
+    children: list[Path] = []
+    try:
+        with os.scandir(archive) as iterator:
+            for entry in iterator:
+                if len(children) >= 100:
+                    return False
+                children.append(Path(entry.path))
+    except OSError:
+        return False
+    children.sort(key=lambda item: item.name.lower())
+    if len(children) < 2:
+        return False
+    if any(
+        not child.is_dir() or child.is_symlink() or not ARTIFACT_BUNDLE.fullmatch(child.name)
+        for child in children
+    ):
+        return False
+    scanned = 0
+    for child in children:
+        marker = False
+        stack = [child]
+        while stack and scanned < 20_000 and not marker:
+            directory = stack.pop()
+            try:
+                with os.scandir(directory) as iterator:
+                    for entry in iterator:
+                        scanned += 1
+                        path = Path(entry.path)
+                        if entry.is_symlink():
+                            continue
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append(path)
+                        elif entry.is_file(follow_symlinks=False) and path.suffix.lower() in EVIDENCE_SUFFIXES:
+                            marker = True
+                        if scanned >= 20_000:
+                            break
+            except OSError:
+                return False
+        if not marker:
+            return False
+    return True
+
+
+def structured_release_container(root: Path, target: str) -> bool:
+    if target.lower() not in {"release", "releases"}:
+        return False
+    container = root / target
+    children: list[Path] = []
+    try:
+        with os.scandir(container) as iterator:
+            for entry in iterator:
+                if len(children) >= 200:
+                    return False
+                children.append(Path(entry.path))
+    except OSError:
+        return False
+    release_directories = 0
+    for child in children:
+        if not child.is_dir() or child.is_symlink():
+            continue
+        manifest = child / "release-manifest.json"
+        if manifest.is_file() and not manifest.is_symlink() and version_in_path(child.name):
+            release_directories += 1
+    return release_directories >= 2
+
+
+def version_in_path(name: str) -> bool:
+    return re.search(r"(?<!\d)\d+(?:\.\d+){1,3}(?!\d)", name) is not None
+
+
+def path_role_keep_reason(root: Path, lead: dict[str, Any]) -> str | None:
+    target = str(lead.get("target", ""))
+    parts = PurePosixPath(target).parts
+    if structured_artifact_archive(root, lead):
+        return (
+            "Keep by default: this ignored root is a structured phase, release, and validation evidence archive. "
+            "No expiry or remote-recovery policy authorizes discarding that evidence."
+        )
+    if structured_release_container(root, target):
+        return (
+            "Keep as a container: versioned child releases are triaged independently, "
+            "so the shared release root is not itself a deletion target."
+        )
+    if parts and parts[0].lower() == "references":
+        absolute = root.joinpath(*parts)
+        regular = bounded_regular_files(absolute)
+        if regular and all(item.suffix.lower() in REFERENCE_SUFFIXES for item in regular):
+            return "Keep by role: this is intentionally named reference material, not generated residue."
+    if parts and parts[0].lower() == "installer":
+        absolute = root.joinpath(*parts)
+        regular = bounded_regular_files(absolute)
+        if regular and all(item.suffix.lower() == ".iss" for item in regular):
+            return "Keep by role: this is installer source code, not generated installer output."
+    return None
+
+
+def duplicate_role_keep_reason(lead: dict[str, Any]) -> str | None:
+    paths = lead.get("evidence", {}).get("paths", [])
+    if not isinstance(paths, list) or len(paths) < 2:
+        return None
+    parsed = [PurePosixPath(str(path)) for path in paths]
+    if all(
+        len(path.parts) >= 4
+        and path.parts[0].lower() == "docs"
+        and re.fullmatch(r"phase-\d+", path.parts[1], flags=re.IGNORECASE)
+        and path.parts[2].lower() == "evidence"
+        and path.suffix.lower() in EVIDENCE_SUFFIXES
+        for path in parsed
+    ):
+        return (
+            "Keep by role: byte-identical files occupy distinct phase or UI-state evidence paths, "
+            "so their locations carry documentation meaning."
+        )
+    return None
 
 
 def verdict_for(result: dict[str, Any]) -> tuple[str, str]:
@@ -217,27 +389,39 @@ def triage(
                 elif item["decision"] == "keep":
                     result["keep"].append(item)
                 else:
-                    result["unresolved"].append({
-                        "lead_id": item["lead_id"], "surface": "path",
-                        "target": item["path"], "signal": lead["signal"],
-                        "bytes": item.get("bytes", 0), "reason": item["reason"],
-                        "evidence_summary": item.get("fingerprint", "unknown"),
-                    })
+                    keep_reason = path_role_keep_reason(root, lead)
+                    if keep_reason:
+                        result["keep"].append(keep_lead(lead, keep_reason))
+                    else:
+                        result["unresolved"].append({
+                            "lead_id": item["lead_id"], "surface": "path",
+                            "target": item["path"], "signal": lead["signal"],
+                            "bytes": item.get("bytes", 0), "reason": item["reason"],
+                            "evidence_summary": item.get("fingerprint", "unknown"),
+                        })
             elif lead["id"] in selected_ids:
                 raise AssertionError("Selected path was not inspected")
             else:
-                reason = None
-                if lead["signal"] == "untracked-content":
-                    reason = "Generic untracked content is preserved unless provenance and intent establish that it is residue."
-                elif lead in inspectable:
-                    reason = "Automatic exact inspection limit was reached before this path."
-                result["unresolved"].append(unresolved_lead(lead, reason))
+                keep_reason = path_role_keep_reason(root, lead)
+                if keep_reason:
+                    result["keep"].append(keep_lead(lead, keep_reason))
+                else:
+                    reason = None
+                    if lead["signal"] == "untracked-content":
+                        reason = "Generic untracked content is preserved unless provenance and intent establish that it is residue."
+                    elif lead in inspectable:
+                        reason = "Automatic exact inspection limit was reached before this path."
+                    result["unresolved"].append(unresolved_lead(lead, reason))
         elif lead["surface"] in {"branch", "worktree"}:
             result["git_hygiene"].append(unresolved_lead(lead))
         elif lead["surface"] == "repository":
             result["repository_attention"].append(unresolved_lead(lead))
         else:
-            result["unresolved"].append(unresolved_lead(lead))
+            keep_reason = duplicate_role_keep_reason(lead) if lead["surface"] == "duplicate-set" else None
+            if keep_reason:
+                result["keep"].append(keep_lead(lead, keep_reason))
+            else:
+                result["unresolved"].append(unresolved_lead(lead))
 
     result["safe_to_remove"].sort(key=lambda item: (-item.get("bytes", 0), item["path"]))
     result["keep"].sort(key=lambda item: item["path"])
@@ -257,6 +441,7 @@ def triage(
         "safe_to_remove_count": len(result["safe_to_remove"]),
         "recoverable_bytes": sum(item.get("bytes", 0) for item in result["safe_to_remove"]),
         "kept_count": len(result["keep"]),
+        "retained_bytes": sum(item.get("bytes", 0) for item in result["keep"]),
         "unresolved_count": len(result["unresolved"]) + len(result["repository_attention"]),
         "git_hygiene_count": len(result["git_hygiene"]),
     }

@@ -58,6 +58,12 @@ class ReleaseRetentionFixture(unittest.TestCase):
         (release / "SHA256SUMS.txt").write_text("fixture checksums\n", encoding="utf-8")
         return release
 
+    def remove_product_feed(self, release: Path) -> None:
+        manifest_path = release / "release-manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest.pop("AutomaticUpdates", None)
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
     @staticmethod
     def digest(path: Path) -> str:
         return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -128,6 +134,43 @@ class ReleaseRetentionInspectTests(ReleaseRetentionFixture):
         self.assertEqual(evidence["newer_stable_count"], 2)
         self.assertEqual(len(evidence["asset_matches"]), 3)
         self.assertEqual(evidence["unmatched_files"], [])
+        self.assertEqual(evidence["repository_source"], "manifest-feed")
+
+    def test_two_newer_sibling_feeds_can_establish_legacy_release_repository(self) -> None:
+        release = self.create_release("1.0.0")
+        self.remove_product_feed(release)
+        self.create_release("1.1.0")
+        self.create_release("1.2.0")
+        response = self.release_metadata(release, "1.0.0")
+
+        with mock.patch.object(retention_module, "run_gh", return_value=response):
+            item = self.inspect()["items"][0]
+
+        self.assertEqual(item["classification"], "candidate")
+        evidence = item["evidence"]["release_retention"]
+        self.assertEqual(evidence["repository_source"], "sibling-manifest-consensus")
+        self.assertEqual(len(evidence["repository_sources"]), 2)
+        self.assertEqual({source["repository"] for source in evidence["repository_sources"]}, {"example/releases"})
+
+    def test_single_or_conflicting_sibling_feed_cannot_establish_repository(self) -> None:
+        for case in ("single", "conflicting"):
+            with self.subTest(case=case):
+                release = self.create_release(f"1.0.{0 if case == 'single' else 1}")
+                self.remove_product_feed(release)
+                self.create_release(f"1.1.{0 if case == 'single' else 1}")
+                if case == "conflicting":
+                    sibling = self.create_release("1.2.1")
+                    manifest_path = sibling / "release-manifest.json"
+                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    manifest["AutomaticUpdates"]["Feed"] = (
+                        "https://github.com/other/releases/releases/latest/download/release-manifest.json"
+                    )
+                    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+                path = release.relative_to(self.workspace).as_posix()
+                with mock.patch.object(retention_module, "run_gh") as run_gh:
+                    item = self.inspect(path)["items"][0]
+                self.assertEqual(item["classification"], "review")
+                run_gh.assert_not_called()
 
     def test_fully_untracked_remote_backed_release_creates_typed_candidate(self) -> None:
         (self.workspace / ".gitignore").write_text("", encoding="utf-8")
@@ -206,7 +249,7 @@ class ReleaseRetentionInspectTests(ReleaseRetentionFixture):
             item = self.inspect()["items"][0]
 
         self.assertEqual(item["classification"], "review")
-        self.assertIn("explicit GitHub Releases feed", item["reason"])
+        self.assertIn("Fewer than two newer sibling manifests", item["reason"])
         run_gh.assert_not_called()
 
     def test_nested_and_multiple_repository_evidence_remain_review(self) -> None:
@@ -244,6 +287,40 @@ class ReleaseRetentionInspectTests(ReleaseRetentionFixture):
 
 
 class ReleaseRetentionApplyTests(ReleaseRetentionFixture):
+    def test_approved_legacy_release_with_sibling_consensus_applies(self) -> None:
+        release = self.create_release("1.0.0")
+        self.remove_product_feed(release)
+        self.create_release("1.1.0")
+        self.create_release("1.2.0")
+        response = self.release_metadata(release, "1.0.0")
+        path = release.relative_to(self.workspace).as_posix()
+
+        with mock.patch.object(retention_module, "run_gh", return_value=response):
+            item = self.inspect(path)["items"][0]
+            result, exit_code = self.apply(path, item["id"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(result["status"], "completed")
+        self.assertFalse(release.exists())
+
+    def test_changed_sibling_consensus_invalidates_approval_before_mutation(self) -> None:
+        release = self.create_release("1.0.0")
+        self.remove_product_feed(release)
+        self.create_release("1.1.0")
+        sibling = self.create_release("1.2.0")
+        response = self.release_metadata(release, "1.0.0")
+        path = release.relative_to(self.workspace).as_posix()
+
+        with mock.patch.object(retention_module, "run_gh", return_value=response):
+            item = self.inspect(path)["items"][0]
+        self.remove_product_feed(sibling)
+        with mock.patch.object(retention_module, "run_gh", return_value=response):
+            result, exit_code = self.apply(path, item["id"])
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(result["status"], "refused")
+        self.assertTrue(release.is_dir())
+
     def test_approved_remote_backed_release_applies_through_quarantine(self) -> None:
         release = self.create_release()
         response = self.release_metadata(release)

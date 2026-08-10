@@ -73,7 +73,15 @@ python scripts/triage_repository.py --workspace <folder-or-repository-root> --fo
 
 Pass the same explicit `--git-base`, discovery budgets, and truncation disclosures described above. Use `--max-inspections <n>` to bound automatic exact inspections. Triage must return `incomplete` when any required scan or inspection budget is exhausted.
 
-Triage runs Discover, groups every lead by decision surface, and automatically runs exact Inspect on plausible generated and temporary Git-root paths. It may place only strict `empty-directory`, `ignored-generated`, and `remote-backed-release` results in `safe_to_remove`. A broad `git-new` result is always unresolved because Git cannot prove why the path exists. Duplicate sets, tracked-code opportunities, branches, and worktrees never become path Apply candidates.
+Triage runs Discover, groups every lead by decision surface, and automatically runs exact Inspect on plausible generated and temporary Git-root paths. It may place only strict `empty-directory`, `ignored-generated`, `remote-backed-release`, and `temporary-residue` results in `safe_to_remove`. A broad `git-new` result is always unresolved because Git cannot prove why the path exists. Duplicate sets, tracked-code opportunities, branches, and worktrees never become path Apply candidates.
+
+Resolve obvious intentional roles without asking the user to guess:
+
+- keep a structured ignored `artifacts` root when its bounded children are phase, release, or configuration evidence bundles and no expiry or recovery policy authorizes removal;
+- keep dedicated `references/` assets and `.iss` installer source as intentional inputs;
+- keep byte-identical image or JSON files under distinct `docs/phase-*/evidence/` paths because the paths carry documentation meaning;
+- keep a shared `release` container while triaging its exact versioned child directories independently;
+- keep a legacy local release when exact remote recovery cannot be proven, stating that it may be the only verified copy.
 
 Treat Triage candidates as provisional until completing the reference and context review below. Downgrade any candidate whose active purpose remains ambiguous. Never promote a script `review` result. Do not ask the user to choose raw leads that the skill can investigate itself.
 
@@ -132,10 +140,11 @@ The inspector may emit these candidate kinds:
 
 - `git-new` for the existing exact untracked or added whole-path cases;
 - `ignored-generated` only when the exact selected directory and its complete tree are ignored, no tracked or changed descendants exist, repository references do not retain it, and strong machine-verifiable build context exists. The bundled inspector currently recognizes only conventional `bin` and `obj` directories beside a tracked `.csproj` file;
-- `remote-backed-release` only when an exact fully ignored or fully untracked directory contains one bounded JSON `release-manifest.json`, that manifest names one GitHub Releases repository and one semantic version, every direct local file matches the name, size, and SHA-256 digest of an asset in the corresponding published stable release, and at least two newer stable releases exist;
+- `remote-backed-release` only when an exact fully ignored or fully untracked directory contains one bounded JSON `release-manifest.json`, its semantic version matches the directory, every direct local file matches the name, size, and SHA-256 digest of an asset in the corresponding published stable release, and at least two newer stable releases exist. Resolve the repository from the manifest's explicit feed or from at least two newer sibling manifests with distinct versions that unanimously name the same GitHub Releases repository;
+- `temporary-residue` only for an exact wholly ignored or untracked file with a strict temporary suffix (`.tmp`, `.temp`, `.bak`, `.old`, `.orig`, `.rej`, `.swp`) or OS metadata name, no tracked or changed state, and zero repository references. Logs, dumps, caches, and arbitrary untracked files do not qualify;
 - `empty-directory` only when the exact directory is empty, its metadata is fingerprinted, it has no tracked or changed state, repository content does not reference it, and its name does not suggest retained, fixture, runtime, package, or cache ownership.
 
-For release evidence, the inspector may use `gh api` read-only against the single GitHub repository named by the manifest. It never downloads assets, follows non-GitHub URLs, publishes, or changes remote state. Missing `gh` access, API errors, absent digests, extra local files, mismatches, drafts, prereleases, and the newest two stable releases remain `review`.
+For release evidence, the inspector may use `gh api` read-only against the single GitHub repository established by direct feed or newer-sibling consensus. It never downloads assets, follows non-GitHub URLs, publishes, or changes remote state. Conflicting or fewer than two sibling sources cannot establish a repository. Missing `gh` access, API errors, absent digests, extra local files, mismatches, drafts, prereleases, unpublished versions, and the newest two stable releases remain non-candidates and stay local.
 
 Ignored status, a generated-looking name, or empty state alone is never evidence of disposability. Keep arbitrary ignored roots such as `artifacts`, `release`, `vendor`, `fixtures`, `cache`, and `output` in `review`; only an exact versioned subdirectory with the complete remote-backed proof above may qualify.
 
@@ -202,6 +211,7 @@ Apply must:
 - Accept ignored content only for a current `ignored-generated` candidate whose complete ignored tree, tracked-project context, zero-reference result, clean descendant state, and exact fingerprint still match the approved ID.
 - Accept an empty directory only for a current `empty-directory` candidate whose zero-entry state, metadata, zero-reference result, and exact fingerprint still match the approved ID.
 - Accept a remote-backed release only when every exact local file still matches published GitHub asset digests, the release is still superseded by at least two newer stable releases, Git state is still wholly ignored or wholly untracked, and the full fingerprint still matches the approved ID.
+- Accept temporary residue only when the exact file still has a strict temporary name, remains wholly ignored or untracked and unreferenced, and its full fingerprint still matches the approved ID.
 - Refuse arbitrary ignored, reserved, tracked-without-addition, modified, mixed, absent, special, symlink, junction, escaping, referenced, and otherwise uncertain targets.
 - Run validation before mutation and re-inspect afterward so baseline side effects invalidate approval.
 - Move only exact approved roots into a verified quarantine beside the workspace on the same filesystem.

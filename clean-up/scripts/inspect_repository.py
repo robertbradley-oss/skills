@@ -23,6 +23,8 @@ AMBIGUOUS_EMPTY_NAMES = {
     "artifacts", "cache", "data", "fixture", "fixtures", "output", "release",
     "runtime", "seed", "seeds", "storage", "testdata", "uploads", "vendor",
 }
+STRICT_TEMPORARY_SUFFIXES = {".bak", ".old", ".orig", ".rej", ".swp", ".temp", ".tmp"}
+STRICT_TEMPORARY_NAMES = {".ds_store", "desktop.ini", "thumbs.db"}
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -150,6 +152,16 @@ def fingerprint_token(fingerprint: dict[str, Any]) -> str:
 
 def is_reserved_path(path: str) -> bool:
     return any(path == item or path.startswith(item + "/") for item in RESERVED_EXACT_PATHS)
+
+
+def temporary_residue_evidence(path: str, current: dict[str, Any]) -> dict[str, Any] | None:
+    if current.get("type") != "file":
+        return None
+    name = PurePosixPath(path).name.lower()
+    suffix = PurePosixPath(path).suffix.lower()
+    if name not in STRICT_TEMPORARY_NAMES and suffix not in STRICT_TEMPORARY_SUFFIXES:
+        return None
+    return {"kind": "strict-temporary-name", "name": name, "suffix": suffix}
 
 
 def run_git(
@@ -515,6 +527,30 @@ def classify_git(
 
     worktree_code = git["status"].get(path, {}).get("code")
     base_code = git["base_changes"].get(path, {}).get("code", "")
+    temporary = temporary_residue_evidence(path, current)
+    detail["temporary_residue"] = temporary
+    if temporary is not None:
+        safe_git_state = bool(
+            not tracked and not base_changes
+            and (
+                worktree_code == "??"
+                or (ignored.get("root_ignored") and not status)
+            )
+        )
+        if safe_git_state:
+            references, reference_error = repository_reference_evidence(root, path)
+            detail["references"] = references
+            if reference_error:
+                detail["evidence_error"] = reference_error
+                return "review", "Repository references could not be checked", detail, None
+            if references.get("match_count"):
+                return "review", "Repository content references the temporary-looking file", detail, None
+            return (
+                "candidate",
+                "The exact untracked or ignored file has a strict temporary name and no repository references",
+                detail,
+                "temporary-residue",
+            )
     if worktree_code == "??":
         return "candidate", "Path is explicitly named and currently untracked", detail, "git-new"
     if worktree_code and "A" in worktree_code:
