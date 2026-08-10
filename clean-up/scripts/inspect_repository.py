@@ -17,7 +17,7 @@ from typing import Any
 from release_retention import analyze_release_directory
 
 
-OUTPUT_SCHEMA = "clean-up-inspection/v2"
+OUTPUT_SCHEMA = "clean-up-inspection/v3"
 RESERVED_EXACT_PATHS = {".clean-up", ".git", ".gameplan", ".post-clean", "GAMEPLAN.md"}
 AMBIGUOUS_EMPTY_NAMES = {
     "artifacts", "cache", "data", "fixture", "fixtures", "output", "release",
@@ -25,6 +25,10 @@ AMBIGUOUS_EMPTY_NAMES = {
 }
 STRICT_TEMPORARY_SUFFIXES = {".bak", ".old", ".orig", ".rej", ".swp", ".temp", ".tmp"}
 STRICT_TEMPORARY_NAMES = {".ds_store", "desktop.ini", "thumbs.db"}
+NODE_LOCKFILE_NAMES = (
+    "bun.lock", "bun.lockb", "npm-shrinkwrap.json", "package-lock.json",
+    "pnpm-lock.yaml", "yarn.lock",
+)
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -370,7 +374,122 @@ def dotnet_generated_context(root: Path, path: str, absolute: Path) -> dict[str,
     }
 
 
-def repository_reference_evidence(root: Path, path: str) -> tuple[dict[str, Any], str | None]:
+def tracked_file_evidence(root: Path, path: Path, max_bytes: int) -> dict[str, Any] | None:
+    if path.is_symlink() or is_junction(path) or not path.is_file():
+        return None
+    if target_outside_workspace(root, path):
+        return None
+    try:
+        relative = path.relative_to(root).as_posix()
+        size = path.stat().st_size
+    except (OSError, ValueError):
+        return None
+    if size > max_bytes:
+        return None
+    tracked = run_git(root, ["ls-files", "--error-unmatch", "--", relative])
+    if tracked.returncode != 0:
+        return None
+    try:
+        digest = sha256_file(path)
+    except OSError:
+        return None
+    return {"path": relative, "size": size, "sha256": digest}
+
+
+def node_generated_context(root: Path, path: str, absolute: Path) -> dict[str, Any] | None:
+    output_name = PurePosixPath(path).name.lower()
+    if output_name not in {"node_modules", ".next", "next-env.d.ts"}:
+        return None
+    if output_name in {"node_modules", ".next"} and not absolute.is_dir():
+        return None
+    if output_name == "next-env.d.ts" and not absolute.is_file():
+        return None
+
+    package_path = absolute.parent / "package.json"
+    package_evidence = tracked_file_evidence(root, package_path, 1024 * 1024)
+    if package_evidence is None:
+        return None
+    try:
+        package_data = json.loads(package_path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(package_data, dict):
+        return None
+
+    lockfiles: list[dict[str, Any]] = []
+    cursor = absolute.parent
+    while True:
+        for name in NODE_LOCKFILE_NAMES:
+            evidence = tracked_file_evidence(root, cursor / name, 64 * 1024 * 1024)
+            if evidence is not None:
+                lockfiles.append(evidence)
+        if cursor == root:
+            break
+        try:
+            parent = cursor.parent
+            if os.path.commonpath([str(root), str(parent)]) != str(root) or parent == cursor:
+                break
+        except ValueError:
+            break
+        cursor = parent
+    if not lockfiles:
+        return None
+
+    dependency_sections = ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies")
+    next_versions = [
+        section.get("next")
+        for key in dependency_sections
+        if isinstance((section := package_data.get(key)), dict) and isinstance(section.get("next"), str)
+    ]
+    if output_name in {".next", "next-env.d.ts"} and not next_versions:
+        return None
+
+    return {
+        "kind": "node-dependency-install" if output_name == "node_modules" else "nextjs-generated-output",
+        "output_name": output_name,
+        "tracked_package": package_evidence,
+        "tracked_lockfiles": sorted(lockfiles, key=lambda item: item["path"]),
+        "next_dependency_versions": sorted(set(next_versions)),
+    }
+
+
+def generated_reference_role(
+    source: str, generated_context: dict[str, Any] | None,
+) -> str | None:
+    if not generated_context:
+        return None
+    normalized = source.replace("\\", "/")
+    lockfiles = {
+        str(item.get("path"))
+        for item in generated_context.get("tracked_lockfiles", [])
+        if isinstance(item, dict) and isinstance(item.get("path"), str)
+    }
+    if normalized in lockfiles:
+        return "tracked-lockfile-regeneration-metadata"
+    name = PurePosixPath(normalized).name.lower()
+    if generated_context.get("kind") == "node-dependency-install" and (
+        name == ".eslintignore"
+        or name == "package.json"
+        or name.startswith("eslint.config.")
+        or (name.startswith("tsconfig") and name.endswith(".json"))
+    ):
+        return "tracked-package-generated-path-configuration"
+    if generated_context.get("kind") != "nextjs-generated-output":
+        return None
+    if (
+        name == ".eslintignore"
+        or name == "package.json"
+        or name.startswith("eslint.config.")
+        or (name.startswith("tsconfig") and name.endswith(".json"))
+        or name.startswith("next.config.")
+    ):
+        return "tracked-framework-generated-path-configuration"
+    return None
+
+
+def repository_reference_evidence(
+    root: Path, path: str, generated_context: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], str | None]:
     queries = [path]
     windows_path = path.replace("/", "\\")
     if windows_path != path:
@@ -393,6 +512,7 @@ def repository_reference_evidence(root: Path, path: str) -> tuple[dict[str, Any]
         flags=re.IGNORECASE,
     )
     matches = []
+    generated_metadata_matches: list[dict[str, str]] = []
     for raw_line in completed.stdout.splitlines():
         line = decode_path(raw_line)
         fields = line.split(":", 2)
@@ -400,6 +520,10 @@ def repository_reference_evidence(root: Path, path: str) -> tuple[dict[str, Any]
         if PurePosixPath(source).name == ".gitignore":
             continue
         if len(fields) < 3 or reference_pattern.search(fields[2]):
+            generated_role = generated_reference_role(source, generated_context)
+            if generated_role:
+                generated_metadata_matches.append({"match": line, "role": generated_role})
+                continue
             matches.append(line)
     return {
         "query": path,
@@ -407,6 +531,9 @@ def repository_reference_evidence(root: Path, path: str) -> tuple[dict[str, Any]
         "matches": matches[:20],
         "match_count": len(matches),
         "truncated": len(matches) > 20,
+        "generated_metadata_matches": generated_metadata_matches[:20],
+        "generated_metadata_match_count": len(generated_metadata_matches),
+        "generated_metadata_truncated": len(generated_metadata_matches) > 20,
     }, None
 
 
@@ -444,10 +571,15 @@ def classify_git(
                 return "review", "The selected root is ignored, but its complete tree is not ignored", detail, None
             if tracked or status or base_changes:
                 return "review", "Ignored root contains tracked, staged, modified, added, or mixed-state descendants", detail, None
-            generated_context = dotnet_generated_context(root, path, absolute)
+            generated_context = (
+                dotnet_generated_context(root, path, absolute)
+                or node_generated_context(root, path, absolute)
+            )
             detail["generated_context"] = generated_context
             if generated_context is not None:
-                references, reference_error = repository_reference_evidence(root, path)
+                references, reference_error = repository_reference_evidence(
+                    root, path, generated_context,
+                )
                 detail["references"] = references
                 if reference_error:
                     detail["evidence_error"] = reference_error
@@ -456,7 +588,11 @@ def classify_git(
                     return "review", "Repository content references the ignored generated root", detail, None
                 return (
                     "candidate",
-                    "The exact ignored tree is conventional .NET build output beside a tracked project",
+                    (
+                        "The exact ignored tree is conventional .NET build output beside a tracked project"
+                        if generated_context.get("kind") == "dotnet-conventional-output"
+                        else "The exact ignored tree is reproducible Node or Next.js output backed by tracked package metadata"
+                    ),
                     detail,
                     "ignored-generated",
                 )
@@ -527,6 +663,31 @@ def classify_git(
 
     worktree_code = git["status"].get(path, {}).get("code")
     base_code = git["base_changes"].get(path, {}).get("code", "")
+    generated_context = node_generated_context(root, path, absolute)
+    detail["generated_context"] = generated_context
+    if (
+        generated_context is not None
+        and ignored.get("root_ignored")
+        and ignored.get("complete_tree_ignored")
+        and not tracked
+        and not status
+        and not base_changes
+    ):
+        references, reference_error = repository_reference_evidence(
+            root, path, generated_context,
+        )
+        detail["references"] = references
+        if reference_error:
+            detail["evidence_error"] = reference_error
+            return "review", "Repository references could not be checked", detail, None
+        if references.get("match_count"):
+            return "review", "Repository content references the ignored generated file", detail, None
+        return (
+            "candidate",
+            "The exact ignored file is reproducible Next.js output backed by tracked package metadata",
+            detail,
+            "ignored-generated",
+        )
     temporary = temporary_residue_evidence(path, current)
     detail["temporary_residue"] = temporary
     if temporary is not None:

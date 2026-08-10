@@ -54,7 +54,7 @@ class InspectRepositoryTests(GitWorkspace):
         first = self.inspect(["tmp/debug.log"])
         second = self.inspect(["tmp/debug.log"])
 
-        self.assertEqual(first["schema"], "clean-up-inspection/v2")
+        self.assertEqual(first["schema"], "clean-up-inspection/v3")
         self.assertFalse(first["mutations_performed"])
         self.assertEqual(first["provisional_authorization_set"], second["provisional_authorization_set"])
         item = first["items"][0]

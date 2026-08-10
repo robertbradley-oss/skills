@@ -18,7 +18,7 @@ from inspect_git_hygiene import inspect_git_hygiene
 from inspect_repository import fingerprint_summary, inspect
 
 
-OUTPUT_SCHEMA = "clean-up-triage/v5"
+OUTPUT_SCHEMA = "clean-up-triage/v6"
 AUTO_INSPECT_SIGNALS = {"generated-residue", "temporary-file"}
 STRICT_CANDIDATE_KINDS = {
     "empty-directory", "ignored-generated", "remote-backed-release", "temporary-residue",

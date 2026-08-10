@@ -283,16 +283,44 @@ def preflight(inspection: dict[str, Any], approved_ids: list[str]) -> tuple[list
             ignored = evidence.get("ignored", {})
             generated = evidence.get("generated_context") or {}
             references = evidence.get("references", {})
+            generated_kind = generated.get("kind")
+            output_name = generated.get("output_name")
+            dotnet_contract = bool(
+                generated_kind == "dotnet-conventional-output"
+                and item["current"].get("type") == "directory"
+                and output_name in {"bin", "obj"}
+                and generated.get("tracked_projects")
+            )
+            tracked_package = generated.get("tracked_package") or {}
+            tracked_lockfiles = generated.get("tracked_lockfiles") or []
+            node_type_matches = bool(
+                (output_name in {"node_modules", ".next"} and item["current"].get("type") == "directory")
+                or (output_name == "next-env.d.ts" and item["current"].get("type") == "file")
+            )
+            node_contract = bool(
+                generated_kind in {"node-dependency-install", "nextjs-generated-output"}
+                and node_type_matches
+                and isinstance(tracked_package.get("path"), str)
+                and isinstance(tracked_package.get("sha256"), str)
+                and tracked_lockfiles
+                and all(
+                    isinstance(lockfile, dict)
+                    and isinstance(lockfile.get("path"), str)
+                    and isinstance(lockfile.get("sha256"), str)
+                    for lockfile in tracked_lockfiles
+                )
+                and (
+                    generated_kind != "nextjs-generated-output"
+                    or bool(generated.get("next_dependency_versions"))
+                )
+            )
             if not (
-                item["current"].get("type") == "directory"
+                (dotnet_contract or node_contract)
                 and ignored.get("root_ignored") is True
                 and ignored.get("complete_tree_ignored") is True
                 and not evidence.get("tracked_paths")
                 and not evidence.get("worktree")
                 and not evidence.get("base")
-                and generated.get("kind") == "dotnet-conventional-output"
-                and generated.get("output_name") in {"bin", "obj"}
-                and generated.get("tracked_projects")
                 and references.get("match_count") == 0
                 and not references.get("matches")
             ):
