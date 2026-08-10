@@ -17,7 +17,7 @@ from discover_repository import markdown_cell
 from inspect_repository import decode_path, is_reserved_path, run_git
 
 
-OUTPUT_SCHEMA = "clean-up-tracked-code/v1"
+OUTPUT_SCHEMA = "clean-up-tracked-code/v2"
 SUPPORTED_DECLARATION_EXTENSIONS = {".cs": "csharp", ".ps1": "powershell"}
 REFERENCE_EXTENSIONS = {
     ".axaml", ".config", ".cs", ".csproj", ".json", ".props", ".razor",
@@ -58,7 +58,10 @@ RUNTIME_NAMES = {
 }
 
 
-def stable_id(path: str, line: int, kind: str, name: str, file_sha256: str, corpus_sha256: str) -> str:
+def stable_id(
+    path: str, line: int, kind: str, name: str, file_sha256: str,
+    corpus_sha256: str, changed_file: bool,
+) -> str:
     material = json.dumps(
         {
             "schema": OUTPUT_SCHEMA,
@@ -68,6 +71,7 @@ def stable_id(path: str, line: int, kind: str, name: str, file_sha256: str, corp
             "name": name,
             "file_sha256": file_sha256,
             "corpus_sha256": corpus_sha256,
+            "changed_file": changed_file,
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -271,7 +275,7 @@ def analyze_tracked_code(
         if suffix in SUPPORTED_DECLARATION_EXTENSIONS:
             if relative in changed_set:
                 changed_supported.append(relative)
-            elif suffix == ".cs":
+            if suffix == ".cs":
                 declarations.extend(csharp_declarations(relative, text, file_sha256(data)))
             else:
                 declarations.extend(powershell_declarations(relative, text, file_sha256(data)))
@@ -281,6 +285,7 @@ def analyze_tracked_code(
     findings: list[dict[str, Any]] = []
     if safe_to_report:
         for declaration in declarations:
+            changed_file = declaration["path"] in changed_set
             occurrences = (
                 token_counts.get(declaration["name"], 0)
                 if declaration["language"] == "csharp"
@@ -297,34 +302,44 @@ def analyze_tracked_code(
                 "reference_corpus_sha256": corpus_digest,
                 "reference_files_scanned": scanned_files,
                 "reference_bytes_scanned": scanned_bytes,
-                "changed_file": False,
+                "changed_file": changed_file,
                 "generated_file": False,
                 "attribute_context": False,
             }
             findings.append({
                 "id": stable_id(
                     declaration["path"], declaration["line"], declaration["kind"],
-                    declaration["name"], declaration["file_sha256"], corpus_digest,
+                    declaration["name"], declaration["file_sha256"], corpus_digest, changed_file,
                 ),
                 "surface": "tracked-code",
                 "path": declaration["path"],
                 "line": declaration["line"],
                 "symbol": declaration["name"],
                 "kind": declaration["kind"],
+                "git_state": "tracked-changed" if changed_file else "tracked-clean",
                 "signal": (
                     "unreferenced-private-member"
                     if declaration["language"] == "csharp"
                     else "unreferenced-script-function"
                 ),
-                "confidence": "moderate" if declaration["language"] == "csharp" else "weak",
+                "confidence": (
+                    "weak" if changed_file or declaration["language"] == "powershell" else "moderate"
+                ),
                 "classification": "review",
                 "proposed_action": "none",
                 "reason": (
-                    "The private C# member appears only at its declaration in the bounded tracked reference corpus. "
-                    "Reflection, generated access, framework conventions, or unsupported-language callers are not disproven."
+                    (
+                        "The private C# member appears only at its declaration in the bounded tracked reference corpus. "
+                        "Reflection, generated access, framework conventions, or unsupported-language callers are not disproven."
+                    )
                     if declaration["language"] == "csharp" else
-                    "The PowerShell function name appears only at its declaration in the bounded tracked reference corpus. "
-                    "External invocation, dot-sourcing, generated calls, or dynamic command construction are not disproven."
+                    (
+                        "The PowerShell function name appears only at its declaration in the bounded tracked reference corpus. "
+                        "External invocation, dot-sourcing, generated calls, or dynamic command construction are not disproven."
+                    )
+                ) + (
+                    " The declaration is in modified worktree content and may be intentionally in progress."
+                    if changed_file else ""
                 ),
                 "declaration": declaration["declaration"],
                 "evidence": evidence,
@@ -336,14 +351,6 @@ def analyze_tracked_code(
             "code": "unsupported-source-languages",
             "message": "Tracked source extensions without semantic declaration analysis are present.",
             "extensions": dict(sorted(unsupported_counts.items())),
-        })
-    if changed_supported:
-        coverage_gaps.append({
-            "code": "changed-supported-files",
-            "message": "Changed supported source files were included for reference counting but skipped as declaration sources.",
-            "count": len(changed_supported),
-            "sample": changed_supported[:10],
-            "sample_truncated": len(changed_supported) > 10,
         })
     if truncated:
         coverage_gaps.append({
@@ -374,6 +381,7 @@ def analyze_tracked_code(
             "unsupported_source_files": sum(unsupported_counts.values()),
             "unsupported_extensions": dict(sorted(unsupported_counts.items())),
             "changed_supported_files": len(changed_supported),
+            "changed_supported_files_analyzed": len(changed_supported),
             "reference_files_scanned": scanned_files,
             "reference_bytes_scanned": scanned_bytes,
             "scan_truncated": truncated,
@@ -390,17 +398,17 @@ def render_markdown(result: dict[str, Any]) -> str:
     lines = [
         "# Clean Up tracked-code analysis", "", f"Workspace: `{markdown_cell(result['workspace'])}`",
         "Mutations: `none`", "Apply supported: `no`", "",
-        "| ID | Exact source location | Symbol | Signal | Confidence |",
-        "|---|---|---|---|---|",
+        "| ID | Exact source location | Symbol | Git state | Signal | Confidence |",
+        "|---|---|---|---|---|---|",
     ]
     for item in result["findings"]:
         location = f"{item['path']}:{item['line']}"
         lines.append(
             f"| `{item['id']}` | `{markdown_cell(location)}` | `{markdown_cell(item['symbol'])}` | "
-            f"`{item['signal']}` | `{item['confidence']}` |"
+            f"`{item['git_state']}` | `{item['signal']}` | `{item['confidence']}` |"
         )
     if not result["findings"]:
-        lines.append("| - | - | - | - | No tracked dead-code leads found in supported clean source files. |")
+        lines.append("| - | - | - | - | - | No tracked dead-code leads found in supported source files. |")
     if result["coverage_gaps"]:
         lines.extend(["", "Coverage gaps:"])
         lines.extend(
