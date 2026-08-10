@@ -1,6 +1,6 @@
 ---
 name: clean-up
-description: Audit folders, workspaces, worktrees, and repositories for junk, leftovers, duplicates, stale artifacts, generated residue, release history, tracked dead-code signals, and cleanup needs; return a plain evidence-based cleanup verdict; and safely remove only explicitly approved whole paths. Use for broad "is this clean?" questions and exact cleanup requests. Broad triage is read-only, investigates likely residue automatically, and never weakens Apply authorization.
+description: Audit folders, workspaces, worktrees, and repositories for junk, leftovers, duplicates, stale artifacts, generated residue, release history, disorganized files, tracked dead-code signals, and cleanup needs; return a plain evidence-based cleanup verdict; and safely remove only explicitly approved whole paths. Use for broad "is this clean or organized?" questions, file-organization reviews, and exact cleanup requests. Broad triage is read-only, investigates likely residue automatically, and never weakens Apply authorization.
 ---
 
 # Clean Up
@@ -76,7 +76,7 @@ python scripts/triage_repository.py --workspace <folder-or-repository-root> --fo
 
 Pass the same explicit `--git-base`, discovery budgets, and truncation disclosures described above. Use `--max-inspections <n>` to bound automatic exact inspections. Triage must return `incomplete` when any required scan or inspection budget is exhausted.
 
-Triage runs Discover, groups every lead by decision surface, automatically runs exact path Inspect on plausible generated and temporary Git-root paths, automatically runs exact Git Inspect on branch and worktree leads, and runs bounded tracked-code analysis on an exact Git root. It may place only strict `empty-directory`, `ignored-generated`, `remote-backed-release`, and `temporary-residue` results in `safe_to_remove`. A broad `git-new` result is always unresolved because Git cannot prove why the path exists. Duplicate sets and tracked-code opportunities remain report-only. Branches and worktrees never become path Apply candidates; only the separate Git lane may emit `GC-...` candidates.
+Triage runs Discover, groups every lead by decision surface, automatically runs exact path Inspect on plausible generated and temporary Git-root paths, automatically runs exact Git Inspect on branch and worktree leads, runs bounded tracked-code analysis on an exact Git root, and reviews loose root files against established workspace directories. It may place only strict `empty-directory`, `ignored-generated`, `remote-backed-release`, and `temporary-residue` results in `safe_to_remove`. A broad `git-new` result is always unresolved because Git cannot prove why the path exists. Duplicate sets, tracked-code opportunities, and file-organization opportunities remain report-only. Branches and worktrees never become path Apply candidates; only the separate Git lane may emit `GC-...` candidates.
 
 Git Triage may identify:
 
@@ -85,7 +85,7 @@ Git Triage may identify:
 
 Use `--max-git-inspections <n>` to bound automatic Git inspections. Any exhausted path or Git inspection budget makes the Triage verdict `incomplete`.
 
-Use `--max-code-files <n>` and `--max-code-bytes <n>` to bound the tracked reference corpus. Budget exhaustion makes the verdict `incomplete`. Unsupported source languages and changed supported files are coverage gaps that prevent a tracked-code-clean claim without pretending the scan itself failed.
+Use `--max-code-files <n>` and `--max-code-bytes <n>` to bound the tracked reference corpus. Use `--max-organization-files <n>` and `--max-organization-bytes <n>` to bound loose-root organization analysis. Budget exhaustion makes the verdict `incomplete`. Unsupported source languages remain explicit dead-code coverage gaps.
 
 Resolve obvious intentional roles without asking the user to guess:
 
@@ -113,7 +113,8 @@ Then report:
 - only the highest-impact unresolved blockers and the exact evidence each lacks;
 - a count of items kept with concrete evidence, expanding them only when useful or requested;
 - proven Git-hygiene candidates with exact `GC-...` IDs, plus a count of review-only Git items;
-- tracked-code review leads with exact `DC-...` IDs and explicit language, changed-file, or budget coverage gaps;
+- tracked-code review leads with exact `DC-...` IDs, changed-worktree labels, and explicit language or budget coverage gaps;
+- loose-file organization leads with exact `FO-...` IDs, current Git state, and an evidence-backed destination only when one established directory is unambiguous;
 - a direct answer to whether the workspace is generally clean.
 
 Do not dump the full raw `PD-...` inventory by default. Preserve it in the JSON evidence and summarize counts. If no strict candidate survives, say so directly instead of asking the user to guess which path should be inspected.
@@ -124,6 +125,7 @@ State these boundaries explicitly:
 - `PD-...` discovery IDs cannot authorize removal.
 - `PC-...` and `GC-...` candidates require their separate Apply commands and explicit approval.
 - `DC-...` IDs are review handles only and cannot authorize either Apply lane.
+- `FO-...` IDs are review handles only and cannot authorize either Apply lane.
 - Both Apply lanes re-inspect and refuse stale or changed evidence.
 
 ## Analyze tracked code conservatively
@@ -134,9 +136,9 @@ Run the bundled analyzer directly only when the user requests tracked-code detai
 python scripts/analyze_tracked_code.py --workspace <exact-git-worktree-root> --format json
 ```
 
-The current semantic declaration pass supports clean tracked C# and PowerShell `.ps1` files. For C#, it finds private fields, properties, and methods whose exact identifier appears only at the declaration. For PowerShell, it finds function names that appear only at their declaration, using case-insensitive matching. Both use a bounded tracked source, project, markup, resource, configuration, and metadata corpus. The analyzer skips changed declaration files, generated C#, attribute-driven members, native externs, nested type declarations, entry points, and common framework callback names. Comments and string literals count as references, favoring false negatives over unsafe removal advice.
+The current semantic declaration pass supports tracked C# and PowerShell `.ps1` files, including modified worktree content. For C#, it finds private fields, properties, and methods whose exact identifier appears only at the declaration. For PowerShell, it finds function names that appear only at their declaration, using case-insensitive matching. Both use a bounded tracked source, project, markup, resource, configuration, and metadata corpus. Label every finding from a modified file as changed-worktree evidence, lower its confidence, and bind its ID to both file content and Git state. The analyzer skips generated C#, attribute-driven members, native externs, nested type declarations, entry points, and common framework callback names. Comments and string literals count as references, favoring false negatives over unsafe removal advice.
 
-Treat every result as `review`, even when the lexical signal is strong. Reflection, source generation, framework conventions, dynamic access, external PowerShell invocation, dot-sourcing, and callers in unsupported languages are not disproven by a single-occurrence result. Report unsupported tracked source extensions and changed supported files as coverage gaps. Never read control files such as `GAMEPLAN.md` for tracked-code evidence.
+Treat every result as `review`, even when the lexical signal is strong. Modified files may contain intentionally unfinished work; analyzing them improves coverage but never strengthens removal authority. Reflection, source generation, framework conventions, dynamic access, external PowerShell invocation, dot-sourcing, and callers in unsupported languages are not disproven by a single-occurrence result. Report unsupported tracked source extensions as coverage gaps. Never read control files such as `GAMEPLAN.md` for tracked-code evidence.
 
 State these boundaries explicitly:
 
@@ -144,6 +146,25 @@ State these boundaries explicitly:
 - `DC-...` IDs are state-bound review handles, not cleanup authorization.
 - Path Apply and Git Apply must reject `DC-...` IDs.
 - Removing tracked code requires a separate explicit edit request, semantic context review, and relevant build/test validation; it is not supported by automated Apply.
+
+## Review file organization without moving anything
+
+Run the bundled organizer directly only when the user requests file-organization detail or when diagnosing Triage:
+
+```text
+python scripts/analyze_file_organization.py --workspace <folder-or-exact-git-worktree-root> --format json
+```
+
+The organizer reads only loose regular files at the workspace root and compares recognizable documentation, image, script, test, and example files with established top-level directories. Protect control files, project manifests, lockfiles, standard repository documents, dotfiles, and common root entrypoints. Suggest an exact destination only when one matching directory already exists. Report multiple matching directories, existing destination collisions, tracked changes, untracked state, and ignored state instead of guessing intent.
+
+Treat every `FO-...` result as `review`. The analyzer fingerprints current content and makes no moves. Before moving any file, search semantic references and build, package, documentation, test, CI, and runtime context; then require an explicit edit request and relevant validation. Neither automated Apply lane supports file moves.
+
+State these boundaries explicitly:
+
+- File-organization analysis made no filesystem or Git mutations.
+- `FO-...` IDs are state-bound review handles, not move authorization.
+- Path Apply and Git Apply must reject `FO-...` IDs.
+- Moving tracked or untracked files requires a separate explicit edit request, semantic reference updates, and relevant validation.
 
 ## Freeze the inspection scope
 

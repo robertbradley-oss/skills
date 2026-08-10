@@ -55,7 +55,7 @@ class Sample
             result = analyze_tracked_code(root)
             findings = {item["symbol"]: item for item in result["findings"]}
 
-            self.assertEqual(result["schema"], "clean-up-tracked-code/v1")
+            self.assertEqual(result["schema"], "clean-up-tracked-code/v2")
             self.assertFalse(result["mutations_performed"])
             self.assertFalse(result["apply_supported"])
             self.assertEqual(set(findings), {"unusedField", "Unused"})
@@ -84,19 +84,35 @@ class Sample
             self.assertEqual([item["symbol"] for item in first["findings"]], ["MaybeUnused"])
             self.assertNotIn("MaybeUnused", {item["symbol"] for item in second["findings"]})
 
-    def test_changed_supported_files_are_reference_only_and_create_coverage_gap(self) -> None:
+    def test_changed_supported_files_are_analyzed_and_clearly_labeled_review_only(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = self.repository(Path(temporary), {"src/Sample.cs": "class Sample { }\n"})
             (root / "src" / "Sample.cs").write_text(
-                "class Sample { private void NewUnused() { } }\n", encoding="ascii",
+                "class Sample\n{\n    private void NewUnused() { }\n}\n", encoding="ascii",
             )
 
             result = analyze_tracked_code(root)
 
-            self.assertEqual(result["findings"], [])
+            self.assertEqual([item["symbol"] for item in result["findings"]], ["NewUnused"])
+            finding = result["findings"][0]
+            self.assertTrue(finding["evidence"]["changed_file"])
+            self.assertEqual(finding["git_state"], "tracked-changed")
+            self.assertEqual(finding["confidence"], "weak")
+            self.assertEqual(finding["classification"], "review")
+            self.assertIn("modified worktree content", finding["reason"])
             self.assertEqual(result["summary"]["changed_supported_files"], 1)
-            self.assertFalse(result["summary"]["coverage_complete"])
-            self.assertIn("changed-supported-files", {item["code"] for item in result["coverage_gaps"]})
+            self.assertEqual(result["summary"]["changed_supported_files_analyzed"], 1)
+            self.assertTrue(result["summary"]["coverage_complete"])
+            self.assertNotIn("changed-supported-files", {item["code"] for item in result["coverage_gaps"]})
+
+            changed_id = finding["id"]
+            self.git(root, "add", "src/Sample.cs")
+            self.git(root, "commit", "-qm", "accept source change")
+            clean_result = analyze_tracked_code(root)
+
+            self.assertFalse(clean_result["findings"][0]["evidence"]["changed_file"])
+            self.assertEqual(clean_result["findings"][0]["git_state"], "tracked-clean")
+            self.assertNotEqual(changed_id, clean_result["findings"][0]["id"])
 
     def test_unsupported_languages_are_reported_without_false_clean_claim(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -133,6 +149,25 @@ invoke-used
             self.assertEqual(finding["confidence"], "weak")
             self.assertEqual(finding["classification"], "review")
             self.assertEqual(result["summary"]["supported_languages"], {"powershell": 1})
+            self.assertTrue(result["summary"]["coverage_complete"])
+
+    def test_modified_powershell_function_is_analyzed_and_labeled(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.repository(Path(temporary), {
+                "tools/build.ps1": "Write-Output initial\n",
+            })
+            (root / "tools" / "build.ps1").write_text(
+                "function Invoke-NewUnused {\n    Write-Output unused\n}\n",
+                encoding="ascii",
+            )
+
+            result = analyze_tracked_code(root)
+
+            self.assertEqual([item["symbol"] for item in result["findings"]], ["Invoke-NewUnused"])
+            finding = result["findings"][0]
+            self.assertEqual(finding["git_state"], "tracked-changed")
+            self.assertTrue(finding["evidence"]["changed_file"])
+            self.assertEqual(finding["classification"], "review")
             self.assertTrue(result["summary"]["coverage_complete"])
 
     def test_control_files_and_generated_csharp_are_not_declaration_sources(self) -> None:

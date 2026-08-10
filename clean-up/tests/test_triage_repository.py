@@ -37,8 +37,8 @@ class TriageRepositoryTests(unittest.TestCase):
             (project / f"App{index}.csproj").write_text(
                 '<Project Sdk="Microsoft.NET.Sdk"></Project>\n', encoding="ascii",
             )
-        (root / "tracked.txt").write_text("tracked\n", encoding="ascii")
-        tracked_paths = [".gitignore", "tracked.txt"]
+        (root / "tracked.data").write_text("tracked\n", encoding="ascii")
+        tracked_paths = [".gitignore", "tracked.data"]
         if outputs:
             tracked_paths.append("src")
         self.git(root, "add", *tracked_paths)
@@ -57,7 +57,7 @@ class TriageRepositoryTests(unittest.TestCase):
 
             result = triage(root, None, 50)
 
-            self.assertEqual(result["schema"], "clean-up-triage/v3")
+            self.assertEqual(result["schema"], "clean-up-triage/v4")
             self.assertFalse(result["mutations_performed"])
             self.assertEqual(result["verdict"], "cleanup-recommended")
             self.assertIn("prevent a fully clean verdict", result["headline"])
@@ -273,6 +273,56 @@ class TriageRepositoryTests(unittest.TestCase):
             })
             self.assertIn("## Tracked code", markdown)
             self.assertIn("DC-...` IDs are review handles only", markdown)
+
+    def test_file_organization_opportunity_is_review_only_and_prevents_false_clean(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.repository(Path(temporary), outputs=0)
+            docs = root / "docs"
+            docs.mkdir()
+            (docs / "guide.md").write_text("guide\n", encoding="ascii")
+            self.git(root, "add", "docs/guide.md")
+            self.git(root, "commit", "-qm", "add docs convention")
+            (root / "notes.md").write_text("loose notes\n", encoding="ascii")
+
+            result = triage(root, None, 50)
+            markdown = render_markdown(result)
+
+            self.assertEqual(result["verdict"], "review-remains")
+            organization = next(
+                item for item in result["file_organization"] if item["path"] == "notes.md"
+            )
+            self.assertTrue(organization["id"].startswith("FO-"))
+            self.assertEqual(organization["suggested_destination"], "docs/notes.md")
+            self.assertEqual(organization["classification"], "review")
+            self.assertNotIn(organization["id"], result["proposed_authorization_set"])
+            self.assertNotIn(organization["id"], result["proposed_git_authorization_set"])
+            self.assertIn("## File organization", markdown)
+            self.assertIn("FO-...` IDs are review handles only", markdown)
+
+    def test_triage_analyzes_modified_supported_code_without_a_changed_file_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.repository(Path(temporary), outputs=0)
+            source = root / "src" / "Sample.cs"
+            source.parent.mkdir()
+            source.write_text("class Sample { }\n", encoding="ascii")
+            self.git(root, "add", "src/Sample.cs")
+            self.git(root, "commit", "-qm", "add source")
+            source.write_text(
+                "class Sample\n{\n    private void WorkInProgress() { }\n}\n",
+                encoding="ascii",
+            )
+
+            result = triage(root, None, 50)
+
+            finding = next(
+                item for item in result["tracked_code"] if item["symbol"] == "WorkInProgress"
+            )
+            self.assertEqual(finding["git_state"], "tracked-changed")
+            self.assertEqual(finding["classification"], "review")
+            self.assertNotIn(
+                "changed-supported-files",
+                {item["code"] for item in result["tracked_code_coverage"]},
+            )
 
 
 if __name__ == "__main__":
