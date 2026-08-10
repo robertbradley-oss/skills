@@ -11,12 +11,13 @@ import sys
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from analyze_tracked_code import analyze_tracked_code
 from discover_repository import discover, evidence_text, markdown_cell
 from inspect_git_hygiene import inspect_git_hygiene
 from inspect_repository import fingerprint_summary, inspect
 
 
-OUTPUT_SCHEMA = "clean-up-triage/v2"
+OUTPUT_SCHEMA = "clean-up-triage/v3"
 AUTO_INSPECT_SIGNALS = {"generated-residue", "temporary-file"}
 STRICT_CANDIDATE_KINDS = {
     "empty-directory", "ignored-generated", "remote-backed-release", "temporary-residue",
@@ -333,6 +334,7 @@ def verdict_for(result: dict[str, Any]) -> tuple[str, str]:
         or summary.get("duplicate_hash_budget_exhausted")
         or summary.get("auto_inspect_truncated")
         or summary.get("git_hygiene_inspection_truncated")
+        or summary.get("tracked_code_scan_truncated")
     )
     candidates = summary["safe_to_remove_count"]
     git_candidates = summary.get("git_hygiene_candidate_count", 0)
@@ -372,11 +374,16 @@ def triage(
     workspace: Path, git_base: str | None, max_leads: int,
     max_files: int = 50000, max_hash_bytes: int = 1024 * 1024 * 1024,
     max_inspections: int = 50, max_git_inspections: int = 100,
+    max_code_files: int = 5000, max_code_bytes: int = 64 * 1024 * 1024,
 ) -> dict[str, Any]:
     if max_inspections <= 0:
         raise ValueError("max-inspections must be positive")
     if max_git_inspections <= 0:
         raise ValueError("max-git-inspections must be positive")
+    if max_code_files <= 0:
+        raise ValueError("max-code-files must be positive")
+    if max_code_bytes <= 0:
+        raise ValueError("max-code-bytes must be positive")
     discovery = discover(workspace, git_base, max_leads, max_files, max_hash_bytes)
     root = Path(discovery["workspace"])
     warnings = [
@@ -400,6 +407,8 @@ def triage(
         "unresolved": [],
         "git_hygiene": [],
         "git_hygiene_candidates": [],
+        "tracked_code": [],
+        "tracked_code_coverage": [],
         "repository_attention": [],
         "proposed_authorization_set": [],
         "proposed_git_authorization_set": [],
@@ -417,6 +426,18 @@ def triage(
     path_results: dict[str, dict[str, Any]] = {}
     for lead in inspectable[:max_inspections]:
         path_results[lead["id"]] = triage_path_lead(root, lead, git_base)
+
+    tracked_code_analysis: dict[str, Any] | None = None
+    if discovery["scope_type"] == "git-repository":
+        try:
+            tracked_code_analysis = analyze_tracked_code(root, max_code_files, max_code_bytes)
+            result["tracked_code"] = list(tracked_code_analysis.get("findings", []))
+            result["tracked_code_coverage"] = list(tracked_code_analysis.get("coverage_gaps", []))
+            result["warnings"].extend(tracked_code_analysis.get("warnings", []))
+        except (OSError, ValueError) as exc:
+            result["warnings"].append({
+                "code": "tracked-code-analysis-failed", "message": str(exc),
+            })
 
     git_results, git_refusals, git_inspection_truncated = triage_git_hygiene(
         root, discovery["leads"], max_git_inspections,
@@ -492,6 +513,7 @@ def triage(
     result["unresolved"].sort(key=lambda item: (-item.get("bytes", 0), item["target"]))
     result["git_hygiene"].sort(key=lambda item: (item["surface"], item["target"]))
     result["git_hygiene_candidates"].sort(key=lambda item: (item["surface"], item["target"]))
+    result["tracked_code"].sort(key=lambda item: (item["path"], item["line"], item["symbol"]))
     result["proposed_authorization_set"] = [
         item["candidate_id"] for item in result["safe_to_remove"] if item.get("candidate_id")
     ]
@@ -518,7 +540,20 @@ def triage(
         "git_hygiene_candidate_count": len(result["git_hygiene_candidates"]),
         "git_hygiene_review_count": len(result["git_hygiene"]),
         "git_hygiene_count": len(result["git_hygiene_candidates"]) + len(result["git_hygiene"]),
+        "tracked_code_review_count": len(result["tracked_code"]),
+        "tracked_code_coverage_gap_count": len(result["tracked_code_coverage"]),
+        "tracked_code_scan_truncated": bool(
+            tracked_code_analysis and tracked_code_analysis.get("summary", {}).get("scan_truncated")
+        ),
+        "tracked_code_reference_files": (
+            tracked_code_analysis.get("summary", {}).get("reference_files_scanned", 0)
+            if tracked_code_analysis else 0
+        ),
     }
+    result["summary"]["unresolved_count"] += (
+        result["summary"]["tracked_code_review_count"]
+        + result["summary"]["tracked_code_coverage_gap_count"]
+    )
     result["verdict"], result["headline"] = verdict_for(result)
     return result
 
@@ -573,6 +608,30 @@ def render_markdown(result: dict[str, Any], details_limit: int = 10) -> str:
     else:
         lines.append("No unresolved file or repository leads remain.")
 
+    lines.extend(["", "## Tracked code", ""])
+    if result["tracked_code"]:
+        lines.extend([
+            "| Review ID | Exact source location | Symbol | Evidence |",
+            "|---|---|---|---|",
+        ])
+        for item in result["tracked_code"][:details_limit]:
+            location = f"{item['path']}:{item['line']}"
+            lines.append(
+                f"| `{item['id']}` | `{markdown_cell(location)}` | `{markdown_cell(item['symbol'])}` | "
+                f"{markdown_cell(item['reason'])} |"
+            )
+        hidden_code = len(result["tracked_code"]) - min(len(result["tracked_code"]), details_limit)
+        if hidden_code:
+            lines.extend(["", f"{hidden_code} additional tracked-code lead(s) are retained in the JSON evidence."])
+    else:
+        lines.append("No tracked dead-code leads were found in supported clean source files.")
+    if result["tracked_code_coverage"]:
+        lines.extend(["", "Coverage gaps:"])
+        lines.extend(
+            f"- {markdown_cell(item['code'])}: {markdown_cell(item['message'])}"
+            for item in result["tracked_code_coverage"]
+        )
+
     lines.extend(["", "## Git hygiene", ""])
     if result["git_hygiene_candidates"]:
         lines.extend([
@@ -598,6 +657,7 @@ def render_markdown(result: dict[str, Any], details_limit: int = 10) -> str:
     lines.extend([
         "", "Triage and its exact inspections made no filesystem or Git mutations.",
         "Discovery `PD-...` IDs never authorize removal.",
+        "Tracked-code `DC-...` IDs are review handles only and never authorize Apply.",
         "Path `PC-...` and Git hygiene `GC-...` candidates require their separate Apply commands, explicit approval, and fresh verification.",
     ])
     if result["warnings"]:
@@ -618,6 +678,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-hash-bytes", type=int, default=1024 * 1024 * 1024, help="Bound duplicate hashing")
     parser.add_argument("--max-inspections", type=int, default=50, help="Bound automatic exact inspections")
     parser.add_argument("--max-git-inspections", type=int, default=100, help="Bound automatic branch/worktree inspections")
+    parser.add_argument("--max-code-files", type=int, default=5000, help="Bound tracked reference files read")
+    parser.add_argument("--max-code-bytes", type=int, default=64 * 1024 * 1024, help="Bound tracked reference bytes read")
     parser.add_argument("--details-limit", type=int, default=10, help="Bound unresolved rows in Markdown")
     parser.add_argument("--format", choices=("json", "markdown"), default="json")
     return parser
@@ -632,6 +694,7 @@ def main(argv: list[str] | None = None) -> int:
         result = triage(
             Path(args.workspace), args.git_base, args.max_leads,
             args.max_files, args.max_hash_bytes, args.max_inspections, args.max_git_inspections,
+            args.max_code_files, args.max_code_bytes,
         )
     except (OSError, ValueError) as exc:
         print(json.dumps({"schema": OUTPUT_SCHEMA, "error": str(exc)}, indent=2))

@@ -57,7 +57,7 @@ class TriageRepositoryTests(unittest.TestCase):
 
             result = triage(root, None, 50)
 
-            self.assertEqual(result["schema"], "clean-up-triage/v2")
+            self.assertEqual(result["schema"], "clean-up-triage/v3")
             self.assertFalse(result["mutations_performed"])
             self.assertEqual(result["verdict"], "cleanup-recommended")
             self.assertIn("prevent a fully clean verdict", result["headline"])
@@ -245,6 +245,34 @@ class TriageRepositoryTests(unittest.TestCase):
 
             self.assertIsNotNone(reason)
             self.assertIn("child releases are triaged independently", reason)
+
+    def test_tracked_dead_code_and_language_gaps_prevent_false_clean_verdict(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.repository(Path(temporary), outputs=0)
+            source = root / "src" / "Sample.cs"
+            source.parent.mkdir()
+            source.write_text(
+                "class Sample\n{\n    private void Unused() { }\n}\n", encoding="ascii",
+            )
+            tools = root / "tools"
+            tools.mkdir()
+            (tools / "build.py").write_text("def invoke_build():\n    pass\n", encoding="ascii")
+            self.git(root, "add", "src/Sample.cs", "tools/build.py")
+            self.git(root, "commit", "-qm", "add tracked code")
+
+            result = triage(root, None, 50)
+            markdown = render_markdown(result)
+
+            self.assertEqual(result["verdict"], "review-remains")
+            self.assertEqual([item["symbol"] for item in result["tracked_code"]], ["Unused"])
+            self.assertTrue(result["tracked_code"][0]["id"].startswith("DC-"))
+            self.assertEqual(result["proposed_authorization_set"], [])
+            self.assertEqual(result["proposed_git_authorization_set"], [])
+            self.assertIn("unsupported-source-languages", {
+                item["code"] for item in result["tracked_code_coverage"]
+            })
+            self.assertIn("## Tracked code", markdown)
+            self.assertIn("DC-...` IDs are review handles only", markdown)
 
 
 if __name__ == "__main__":

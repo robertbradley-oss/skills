@@ -1,4 +1,4 @@
 interface:
   display_name: "Clean Up"
   short_description: "Turn cleanup scans into safe decisions"
-  default_prompt: "Use $clean-up to audit this workspace, investigate file and Git hygiene leads automatically, and tell me plainly what is safe to remove, what should stay, and whether it is generally clean."
+  default_prompt: "Use $clean-up to audit this workspace, investigate file, Git hygiene, and tracked-code leads automatically, and tell me plainly what is safe to remove, what should stay, and whether it is generally clean."

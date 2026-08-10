@@ -46,6 +46,6 @@ jobs:
       - name: Run Clean Handoff tests
         run: node --test clean-handoff/tests/*.test.mjs
       - name: Compile Clean Up helpers
-        run: python -m py_compile clean-up/scripts/apply_cleanup.py clean-up/scripts/apply_git_hygiene.py clean-up/scripts/discover_repository.py clean-up/scripts/inspect_git_hygiene.py clean-up/scripts/inspect_repository.py clean-up/scripts/triage_repository.py
+        run: python -m py_compile clean-up/scripts/analyze_tracked_code.py clean-up/scripts/apply_cleanup.py clean-up/scripts/apply_git_hygiene.py clean-up/scripts/discover_repository.py clean-up/scripts/inspect_git_hygiene.py clean-up/scripts/inspect_repository.py clean-up/scripts/triage_repository.py
       - name: Run Clean Up tests
         run: python -B -m unittest discover -s clean-up/tests -p "test_*.py" -v

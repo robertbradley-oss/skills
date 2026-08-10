@@ -105,7 +105,7 @@ class GitHygieneCleanupTests(unittest.TestCase):
             self.git(root, "branch", "merged-topic")
             inspection = inspect_git_hygiene(root, ["merged-topic"], [])
 
-            for wrong_id in ("PD-0123456789AB", "PC-0123456789AB"):
+            for wrong_id in ("PD-0123456789AB", "PC-0123456789AB", "DC-0123456789AB"):
                 selected, refusals = preflight(inspection, [wrong_id])
                 self.assertEqual(selected, [])
                 self.assertTrue(any(item["code"] == "approval-format-invalid" for item in refusals))

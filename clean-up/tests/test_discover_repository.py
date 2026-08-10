@@ -68,6 +68,11 @@ class DiscoverRepositoryTests(unittest.TestCase):
             self.assertTrue(any(item["code"] == "approval-format-invalid" for item in refusals))
             self.assertTrue(any(item["code"] == "approval-not-current" for item in refusals))
 
+            selected, refusals = preflight(inspected, ["DC-0123456789AB"])
+            self.assertEqual(selected, [])
+            self.assertTrue(any(item["code"] == "approval-format-invalid" for item in refusals))
+            self.assertTrue(any(item["code"] == "approval-not-current" for item in refusals))
+
     def test_repository_integrity_lead_is_not_starved_by_result_limit(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = self.repository(Path(temporary))
