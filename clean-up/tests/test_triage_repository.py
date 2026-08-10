@@ -57,7 +57,7 @@ class TriageRepositoryTests(unittest.TestCase):
 
             result = triage(root, None, 50)
 
-            self.assertEqual(result["schema"], "clean-up-triage/v1")
+            self.assertEqual(result["schema"], "clean-up-triage/v2")
             self.assertFalse(result["mutations_performed"])
             self.assertEqual(result["verdict"], "cleanup-recommended")
             self.assertIn("prevent a fully clean verdict", result["headline"])
@@ -69,7 +69,13 @@ class TriageRepositoryTests(unittest.TestCase):
             self.assertEqual(result["proposed_authorization_set"], [candidate["candidate_id"]])
             self.assertTrue(all(not value.startswith("PD-") for value in result["proposed_authorization_set"]))
             self.assertIn("scratch.txt", {item["target"] for item in result["unresolved"]})
-            self.assertIn("merged-topic", {item["target"] for item in result["git_hygiene"]})
+            git_candidate = next(
+                item for item in result["git_hygiene_candidates"]
+                if item["target"] == "merged-topic"
+            )
+            self.assertEqual(git_candidate["candidate_kind"], "merged-local-branch")
+            self.assertTrue(git_candidate["candidate_id"].startswith("GC-"))
+            self.assertEqual(result["proposed_git_authorization_set"], [git_candidate["candidate_id"]])
 
             fresh = inspect(root, [candidate["path"]], None)
             selected, refusals = preflight(fresh, result["proposed_authorization_set"])

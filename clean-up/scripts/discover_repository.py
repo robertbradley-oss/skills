@@ -21,7 +21,10 @@ from inspect_repository import (
 
 
 OUTPUT_SCHEMA = "clean-up-discovery/v2"
-PROTECTED_BRANCHES = {"main", "master", "develop", "development", "trunk"}
+PROTECTED_BRANCHES = {
+    "develop", "development", "main", "master", "prod", "production",
+    "release", "stable", "trunk",
+}
 CONTROL_NAMES = {".clean-up", ".git", ".gameplan", ".hg", ".post-clean", ".svn"}
 GENERATED_COMPONENTS = {
     ".cache", ".gradle", ".mypy_cache", ".next", ".nuxt", ".parcel-cache",
