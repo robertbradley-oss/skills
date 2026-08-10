@@ -1,0 +1,443 @@
+#!/usr/bin/env python3
+"""Read-only, bounded analysis of tracked source for conservative dead-code leads."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import sys
+from collections import Counter
+from pathlib import Path, PurePosixPath
+from typing import Any
+
+from discover_repository import markdown_cell
+from inspect_repository import decode_path, is_reserved_path, run_git
+
+
+OUTPUT_SCHEMA = "clean-up-tracked-code/v1"
+SUPPORTED_DECLARATION_EXTENSIONS = {".cs": "csharp", ".ps1": "powershell"}
+REFERENCE_EXTENSIONS = {
+    ".axaml", ".config", ".cs", ".csproj", ".json", ".props", ".razor",
+    ".ps1", ".psd1", ".psm1", ".resx", ".targets", ".xaml", ".xml",
+}
+OTHER_SOURCE_EXTENSIONS = {
+    ".c", ".cc", ".cpp", ".fs", ".go", ".h", ".hpp", ".java",
+    ".js", ".jsx", ".kt", ".kts", ".php", ".psm1", ".py", ".rb", ".rs",
+    ".sh", ".swift", ".ts", ".tsx", ".vb",
+}
+GENERATED_CSHARP_SUFFIXES = (".designer.cs", ".g.cs", ".g.i.cs", ".generated.cs")
+TOKEN_RE = re.compile(r"(?<![A-Za-z0-9_])@?[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_])")
+POWERSHELL_TOKEN_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])[A-Za-z_][A-Za-z0-9_-]*(?![A-Za-z0-9_-])",
+    flags=re.IGNORECASE,
+)
+POWERSHELL_FUNCTION_RE = re.compile(
+    r"^\s*function\s+(?:(?:global|local|private|script):)?(?P<name>[A-Za-z_][A-Za-z0-9_-]*)\b",
+    flags=re.IGNORECASE,
+)
+TYPE_DECLARATION_RE = re.compile(r"\b(?:class|record|struct|interface|enum|delegate)\b")
+METHOD_RE = re.compile(
+    r"^\s*private\s+(?:(?:static|async|unsafe|new|sealed|virtual|readonly)\s+)*"
+    r"[A-Za-z_][A-Za-z0-9_<>,.?\[\]\s:]*\s+(?P<name>@?[A-Za-z_][A-Za-z0-9_]*)\s*"
+    r"(?:<[^>{};()]+>)?\s*\("
+)
+PROPERTY_RE = re.compile(
+    r"^\s*private\s+(?:(?:static|new|sealed|virtual|readonly)\s+)*"
+    r"[A-Za-z_][A-Za-z0-9_<>,.?\[\]\s:]*\s+(?P<name>@?[A-Za-z_][A-Za-z0-9_]*)\s*(?:=>|\{)"
+)
+FIELD_RE = re.compile(
+    r"^\s*private\s+(?:(?:static|readonly|const|volatile|new)\s+)*"
+    r"[A-Za-z_][A-Za-z0-9_<>,.?\[\]\s:]*\s+(?P<name>@?[A-Za-z_][A-Za-z0-9_]*)\s*(?:=|;)"
+)
+RUNTIME_NAMES = {
+    "Main", "Finalize", "GetObjectData", "OnDeserialized", "OnDeserializing",
+    "OnSerialized", "OnSerializing",
+}
+
+
+def stable_id(path: str, line: int, kind: str, name: str, file_sha256: str, corpus_sha256: str) -> str:
+    material = json.dumps(
+        {
+            "schema": OUTPUT_SCHEMA,
+            "path": path,
+            "line": line,
+            "kind": kind,
+            "name": name,
+            "file_sha256": file_sha256,
+            "corpus_sha256": corpus_sha256,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("ascii")
+    return "DC-" + hashlib.sha256(material).hexdigest()[:12].upper()
+
+
+def git_values(root: Path, arguments: list[str]) -> tuple[list[str], str | None]:
+    completed = run_git(root, arguments)
+    if completed.returncode != 0:
+        return [], decode_path(completed.stderr).strip() or f"git {' '.join(arguments)} failed"
+    return [decode_path(value) for value in completed.stdout.split(b"\0") if value], None
+
+
+def repository_root(workspace: Path) -> Path:
+    root = workspace.resolve(strict=True)
+    completed = run_git(root, ["rev-parse", "--show-toplevel"])
+    if completed.returncode != 0:
+        raise ValueError(decode_path(completed.stderr).strip() or "Workspace is not a Git repository")
+    reported = Path(decode_path(completed.stdout).strip()).resolve(strict=True)
+    if os.path.normcase(str(root)) != os.path.normcase(str(reported)):
+        raise ValueError("Workspace must be the exact Git worktree root")
+    return root
+
+
+def normalized_git_path(value: str) -> str:
+    return value.replace("\\", "/").rstrip("/")
+
+
+def lexical_file(root: Path, relative: str) -> Path | None:
+    pure = PurePosixPath(relative)
+    if pure.is_absolute() or ".." in pure.parts or not pure.parts:
+        return None
+    path = root.joinpath(*pure.parts)
+    try:
+        resolved_parent = path.parent.resolve(strict=True)
+    except OSError:
+        return None
+    expected = resolved_parent / path.name
+    try:
+        if os.path.commonpath([str(root), str(expected)]) != str(root):
+            return None
+    except ValueError:
+        return None
+    return expected
+
+
+def file_sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def attribute_context(lines: list[str], index: int) -> bool:
+    current = lines[index].lstrip()
+    if current.startswith("["):
+        return True
+    cursor = index - 1
+    checked = 0
+    while cursor >= 0 and checked < 4:
+        stripped = lines[cursor].strip()
+        if not stripped:
+            cursor -= 1
+            continue
+        checked += 1
+        if stripped.startswith("[") or stripped.endswith("]"):
+            return True
+        break
+    return False
+
+
+def csharp_declarations(relative: str, text: str, digest: str) -> list[dict[str, Any]]:
+    lowered = relative.lower()
+    if lowered.endswith(GENERATED_CSHARP_SUFFIXES) or "<auto-generated" in text[:1000].lower():
+        return []
+    lines = text.splitlines()
+    declarations: list[dict[str, Any]] = []
+    for index, line in enumerate(lines):
+        if "private" not in line or attribute_context(lines, index):
+            continue
+        stripped = line.strip()
+        if any(token in stripped for token in (" extern ", " event ", " operator ", " partial ")):
+            continue
+        if TYPE_DECLARATION_RE.search(stripped):
+            continue
+        match = METHOD_RE.match(line)
+        kind = "method"
+        if match is None:
+            match = PROPERTY_RE.match(line)
+            kind = "property"
+        if match is None:
+            match = FIELD_RE.match(line)
+            kind = "field"
+        if match is None:
+            continue
+        raw_name = match.group("name")
+        name = raw_name.removeprefix("@")
+        if name in RUNTIME_NAMES or name.startswith("On"):
+            continue
+        declarations.append({
+            "language": "csharp",
+            "path": relative,
+            "line": index + 1,
+            "kind": kind,
+            "name": name,
+            "file_sha256": digest,
+            "declaration": stripped[:300],
+        })
+    return declarations
+
+
+def powershell_declarations(relative: str, text: str, digest: str) -> list[dict[str, Any]]:
+    declarations: list[dict[str, Any]] = []
+    for index, line in enumerate(text.splitlines()):
+        match = POWERSHELL_FUNCTION_RE.match(line)
+        if match is None:
+            continue
+        name = match.group("name")
+        declarations.append({
+            "language": "powershell",
+            "path": relative,
+            "line": index + 1,
+            "kind": "function",
+            "name": name,
+            "file_sha256": digest,
+            "declaration": line.strip()[:300],
+        })
+    return declarations
+
+
+def analyze_tracked_code(
+    workspace: Path, max_files: int = 5000, max_bytes: int = 64 * 1024 * 1024,
+) -> dict[str, Any]:
+    if max_files <= 0:
+        raise ValueError("max-files must be positive")
+    if max_bytes <= 0:
+        raise ValueError("max-bytes must be positive")
+    root = repository_root(workspace)
+    tracked, tracked_error = git_values(root, ["ls-files", "-z"])
+    changed, changed_error = git_values(root, ["diff", "--name-only", "-z", "HEAD", "--"])
+    warnings: list[dict[str, str]] = []
+    if tracked_error:
+        warnings.append({"code": "tracked-files-failed", "message": tracked_error})
+    if changed_error:
+        warnings.append({"code": "changed-files-failed", "message": changed_error})
+    changed_set = {normalized_git_path(value) for value in changed}
+    tracked_paths = sorted({normalized_git_path(value) for value in tracked})
+    source_counts: Counter[str] = Counter()
+    unsupported_counts: Counter[str] = Counter()
+    for relative in tracked_paths:
+        if is_reserved_path(relative):
+            continue
+        suffix = PurePosixPath(relative).suffix.lower()
+        if suffix in SUPPORTED_DECLARATION_EXTENSIONS:
+            source_counts[SUPPORTED_DECLARATION_EXTENSIONS[suffix]] += 1
+        elif suffix in OTHER_SOURCE_EXTENSIONS:
+            unsupported_counts[suffix] += 1
+
+    corpus = hashlib.sha256()
+    token_counts: Counter[str] = Counter()
+    powershell_token_counts: Counter[str] = Counter()
+    declarations: list[dict[str, Any]] = []
+    scanned_files = 0
+    scanned_bytes = 0
+    changed_supported: list[str] = []
+    unreadable: list[str] = []
+    truncated = False
+    for relative in tracked_paths:
+        if is_reserved_path(relative):
+            continue
+        suffix = PurePosixPath(relative).suffix.lower()
+        if suffix not in REFERENCE_EXTENSIONS:
+            continue
+        if scanned_files >= max_files:
+            truncated = True
+            break
+        path = lexical_file(root, relative)
+        if path is None or not path.is_file() or path.is_symlink():
+            unreadable.append(relative)
+            continue
+        try:
+            size = path.stat().st_size
+            if scanned_bytes + size > max_bytes:
+                truncated = True
+                break
+            data = path.read_bytes()
+            if len(data) != size:
+                raise OSError("file size changed while reading")
+            text = data.decode("utf-8-sig")
+        except (OSError, UnicodeError) as exc:
+            unreadable.append(relative)
+            warnings.append({"code": "tracked-code-read-failed", "message": f"{relative}: {exc}"})
+            continue
+        scanned_files += 1
+        scanned_bytes += len(data)
+        encoded_path = relative.encode("utf-8", errors="surrogateescape")
+        corpus.update(len(encoded_path).to_bytes(8, "big"))
+        corpus.update(encoded_path)
+        corpus.update(len(data).to_bytes(8, "big"))
+        corpus.update(data)
+        token_counts.update(match.group(0).removeprefix("@") for match in TOKEN_RE.finditer(text))
+        powershell_token_counts.update(match.group(0).casefold() for match in POWERSHELL_TOKEN_RE.finditer(text))
+        if suffix in SUPPORTED_DECLARATION_EXTENSIONS:
+            if relative in changed_set:
+                changed_supported.append(relative)
+            elif suffix == ".cs":
+                declarations.extend(csharp_declarations(relative, text, file_sha256(data)))
+            else:
+                declarations.extend(powershell_declarations(relative, text, file_sha256(data)))
+
+    corpus_digest = corpus.hexdigest()
+    safe_to_report = not warnings and not truncated and not unreadable
+    findings: list[dict[str, Any]] = []
+    if safe_to_report:
+        for declaration in declarations:
+            occurrences = (
+                token_counts.get(declaration["name"], 0)
+                if declaration["language"] == "csharp"
+                else powershell_token_counts.get(declaration["name"].casefold(), 0)
+            )
+            if occurrences != 1:
+                continue
+            evidence = {
+                "language": declaration["language"],
+                "member_kind": declaration["kind"],
+                "identifier": declaration["name"],
+                "lexical_occurrences": occurrences,
+                "file_sha256": declaration["file_sha256"],
+                "reference_corpus_sha256": corpus_digest,
+                "reference_files_scanned": scanned_files,
+                "reference_bytes_scanned": scanned_bytes,
+                "changed_file": False,
+                "generated_file": False,
+                "attribute_context": False,
+            }
+            findings.append({
+                "id": stable_id(
+                    declaration["path"], declaration["line"], declaration["kind"],
+                    declaration["name"], declaration["file_sha256"], corpus_digest,
+                ),
+                "surface": "tracked-code",
+                "path": declaration["path"],
+                "line": declaration["line"],
+                "symbol": declaration["name"],
+                "kind": declaration["kind"],
+                "signal": (
+                    "unreferenced-private-member"
+                    if declaration["language"] == "csharp"
+                    else "unreferenced-script-function"
+                ),
+                "confidence": "moderate" if declaration["language"] == "csharp" else "weak",
+                "classification": "review",
+                "proposed_action": "none",
+                "reason": (
+                    "The private C# member appears only at its declaration in the bounded tracked reference corpus. "
+                    "Reflection, generated access, framework conventions, or unsupported-language callers are not disproven."
+                    if declaration["language"] == "csharp" else
+                    "The PowerShell function name appears only at its declaration in the bounded tracked reference corpus. "
+                    "External invocation, dot-sourcing, generated calls, or dynamic command construction are not disproven."
+                ),
+                "declaration": declaration["declaration"],
+                "evidence": evidence,
+            })
+    findings.sort(key=lambda item: (item["path"], item["line"], item["symbol"]))
+    coverage_gaps: list[dict[str, Any]] = []
+    if unsupported_counts:
+        coverage_gaps.append({
+            "code": "unsupported-source-languages",
+            "message": "Tracked source extensions without semantic declaration analysis are present.",
+            "extensions": dict(sorted(unsupported_counts.items())),
+        })
+    if changed_supported:
+        coverage_gaps.append({
+            "code": "changed-supported-files",
+            "message": "Changed supported source files were included for reference counting but skipped as declaration sources.",
+            "count": len(changed_supported),
+            "sample": changed_supported[:10],
+            "sample_truncated": len(changed_supported) > 10,
+        })
+    if truncated:
+        coverage_gaps.append({
+            "code": "tracked-code-budget-exhausted",
+            "message": "The tracked reference corpus exceeded the configured file or byte budget.",
+        })
+    if unreadable:
+        coverage_gaps.append({
+            "code": "tracked-code-unreadable",
+            "message": "One or more tracked reference files could not be read safely.",
+            "count": len(unreadable),
+            "sample": unreadable[:10],
+            "sample_truncated": len(unreadable) > 10,
+        })
+    return {
+        "schema": OUTPUT_SCHEMA,
+        "mode": "analyze-tracked-code",
+        "mutations_performed": False,
+        "apply_supported": False,
+        "workspace": str(root),
+        "findings": findings,
+        "coverage_gaps": coverage_gaps,
+        "warnings": warnings,
+        "summary": {
+            "tracked_files": len(tracked_paths),
+            "supported_source_files": sum(source_counts.values()),
+            "supported_languages": dict(sorted(source_counts.items())),
+            "unsupported_source_files": sum(unsupported_counts.values()),
+            "unsupported_extensions": dict(sorted(unsupported_counts.items())),
+            "changed_supported_files": len(changed_supported),
+            "reference_files_scanned": scanned_files,
+            "reference_bytes_scanned": scanned_bytes,
+            "scan_truncated": truncated,
+            "unreadable_files": len(unreadable),
+            "finding_count": len(findings),
+            "coverage_complete": not coverage_gaps and not warnings,
+        },
+        "review_required": bool(findings or coverage_gaps or warnings),
+        "proposed_authorization_set": [],
+    }
+
+
+def render_markdown(result: dict[str, Any]) -> str:
+    lines = [
+        "# Clean Up tracked-code analysis", "", f"Workspace: `{markdown_cell(result['workspace'])}`",
+        "Mutations: `none`", "Apply supported: `no`", "",
+        "| ID | Exact source location | Symbol | Signal | Confidence |",
+        "|---|---|---|---|---|",
+    ]
+    for item in result["findings"]:
+        location = f"{item['path']}:{item['line']}"
+        lines.append(
+            f"| `{item['id']}` | `{markdown_cell(location)}` | `{markdown_cell(item['symbol'])}` | "
+            f"`{item['signal']}` | `{item['confidence']}` |"
+        )
+    if not result["findings"]:
+        lines.append("| - | - | - | - | No tracked dead-code leads found in supported clean source files. |")
+    if result["coverage_gaps"]:
+        lines.extend(["", "Coverage gaps:"])
+        lines.extend(
+            f"- {markdown_cell(item['code'])}: {markdown_cell(item['message'])}"
+            for item in result["coverage_gaps"]
+        )
+    lines.extend([
+        "", "Tracked-code analysis made no filesystem or Git mutations.",
+        "DC IDs are review handles only and cannot authorize path or Git Apply.",
+        "No tracked code should be removed without semantic review, an explicit edit request, and relevant validation.",
+    ])
+    return "\n".join(lines) + "\n"
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--workspace", required=True, help="Exact Git worktree root")
+    parser.add_argument("--max-files", type=int, default=5000, help="Bound tracked reference files read")
+    parser.add_argument("--max-bytes", type=int, default=64 * 1024 * 1024, help="Bound tracked reference bytes read")
+    parser.add_argument("--format", choices=("json", "markdown"), default="json")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        result = analyze_tracked_code(Path(args.workspace), args.max_files, args.max_bytes)
+    except (OSError, ValueError) as exc:
+        print(json.dumps({"schema": OUTPUT_SCHEMA, "error": str(exc)}, indent=2))
+        return 1
+    if args.format == "markdown":
+        sys.stdout.write(render_markdown(result))
+    else:
+        json.dump(result, sys.stdout, indent=2, sort_keys=True)
+        sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
