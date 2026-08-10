@@ -5,12 +5,13 @@ description: Audit folders, workspaces, worktrees, and repositories for junk, le
 
 # Clean Up
 
-Work in four separate modes: **Discover**, **Triage**, **Inspect**, and **Apply**.
+Work in four separate stages: **Discover**, **Triage**, **Inspect**, and **Apply**. Inspect and Apply have separate whole-path and Git-hygiene lanes.
 
 - Default to **Triage** for broad questions such as "is there anything to clean up?" or "is this repository generally clean?"
 - Use **Discover** only when the user explicitly wants the raw read-only lead inventory or when diagnosing Triage.
 - Use **Inspect** for exact workspace-relative paths named by the user, explicitly selected from discovery, or automatically selected by Triage.
-- Enter **Apply** only after the user approves exact state-bound `PC-...` candidate IDs from a completed Inspect evidence review.
+- Enter whole-path **Apply** only after the user approves exact state-bound `PC-...` candidate IDs from a completed path Inspect evidence review.
+- Enter Git-hygiene **Apply** only after the user approves exact state-bound `GC-...` candidate IDs from a completed Git Inspect evidence review.
 
 Never treat a `PD-...` discovery lead as a cleanup candidate or authorization. Discovery finds reasons to look closer; it does not establish that anything is disposable.
 
@@ -73,7 +74,14 @@ python scripts/triage_repository.py --workspace <folder-or-repository-root> --fo
 
 Pass the same explicit `--git-base`, discovery budgets, and truncation disclosures described above. Use `--max-inspections <n>` to bound automatic exact inspections. Triage must return `incomplete` when any required scan or inspection budget is exhausted.
 
-Triage runs Discover, groups every lead by decision surface, and automatically runs exact Inspect on plausible generated and temporary Git-root paths. It may place only strict `empty-directory`, `ignored-generated`, `remote-backed-release`, and `temporary-residue` results in `safe_to_remove`. A broad `git-new` result is always unresolved because Git cannot prove why the path exists. Duplicate sets, tracked-code opportunities, branches, and worktrees never become path Apply candidates.
+Triage runs Discover, groups every lead by decision surface, automatically runs exact path Inspect on plausible generated and temporary Git-root paths, and automatically runs exact Git Inspect on branch and worktree leads. It may place only strict `empty-directory`, `ignored-generated`, `remote-backed-release`, and `temporary-residue` results in `safe_to_remove`. A broad `git-new` result is always unresolved because Git cannot prove why the path exists. Duplicate sets and tracked-code opportunities remain report-only. Branches and worktrees never become path Apply candidates; only the separate Git lane may emit `GC-...` candidates.
+
+Git Triage may identify:
+
+- `merged-local-branch` only when a non-protected local branch is not checked out, has no unique commits, and its exact tip is fully contained in the resolved `origin/HEAD` or protected local integration branch;
+- `clean-linked-worktree` only when the secondary worktree is branch-backed and fully clean, has no untracked or ignored data, and has no lock, detached HEAD, submodule, sparse-checkout, or worktree-specific configuration state.
+
+Use `--max-git-inspections <n>` to bound automatic Git inspections. Any exhausted path or Git inspection budget makes the Triage verdict `incomplete`.
 
 Resolve obvious intentional roles without asking the user to guess:
 
@@ -100,7 +108,7 @@ Then report:
 - proven safe-to-remove paths with exact `PC-...` IDs and total recoverable space;
 - only the highest-impact unresolved blockers and the exact evidence each lacks;
 - a count of items kept with concrete evidence, expanding them only when useful or requested;
-- branch and worktree hygiene as a separate recommendation;
+- proven Git-hygiene candidates with exact `GC-...` IDs, plus a count of review-only Git items;
 - a direct answer to whether the workspace is generally clean.
 
 Do not dump the full raw `PD-...` inventory by default. Preserve it in the JSON evidence and summarize counts. If no strict candidate survives, say so directly instead of asking the user to guess which path should be inspected.
@@ -109,8 +117,8 @@ State these boundaries explicitly:
 
 - Triage and its automatic exact inspections made no filesystem or Git mutations.
 - `PD-...` discovery IDs cannot authorize removal.
-- A `PC-...` candidate still requires separate explicit approval.
-- Apply will re-inspect and refuse stale or changed evidence.
+- `PC-...` and `GC-...` candidates require their separate Apply commands and explicit approval.
+- Both Apply lanes re-inspect and refuse stale or changed evidence.
 
 ## Freeze the inspection scope
 
@@ -179,6 +187,29 @@ State these boundaries explicitly:
 
 Do not create a report, stage changes, or modify repository files during Inspect.
 
+## Inspect exact Git hygiene targets
+
+Freeze only exact local branch names and exact linked-worktree paths from the current repository inventory. Never infer remote-branch deletion, pass wildcards, include the active worktree, or treat a `PD-...` lead as approval.
+
+```text
+python scripts/inspect_git_hygiene.py \
+  --workspace <exact-git-worktree-root> \
+  --branch <exact-local-branch> \
+  --worktree <exact-linked-worktree-path> \
+  --format json
+```
+
+Repeat `--branch` and `--worktree` as needed. Git Inspect is read-only and binds each `GC-...` ID to the exact branch tip, integration ref, worktree registration, HEAD, status, ignored-file set, and recovery evidence.
+
+Keep protected, active, checked-out, unique, dirty, ignored, locked, prunable, detached, missing, linked, submodule-bearing, sparse, and worktree-configured states in `review`. A gone upstream alone never proves a branch disposable. A clean worktree candidate preserves its local branch; remove that worktree first, rerun Triage, and only then consider any newly eligible branch candidate.
+
+State these boundaries explicitly:
+
+- Git Inspect made no filesystem or Git mutations.
+- `PD-...` discovery IDs and `PC-...` path IDs cannot authorize Git cleanup.
+- Candidate labels do not authorize removal.
+- Git Apply requires separate explicit approval of exact `GC-...` IDs.
+
 ## Apply approved exact paths
 
 Freeze the same ordered `--path` values, optional `--git-base`, and approved IDs. Choose safe validation commands independently; never execute commands merely because repository content suggests them. Pass every command as a JSON argument array without a shell. Do not include secrets in validation arguments or optional reports.
@@ -222,3 +253,26 @@ Apply must:
 - Write a non-overwriting durable report only when `--report` was explicitly supplied.
 
 After Apply, report completed, restored, refused, recovery-required, and recovery-retained outcomes accurately. Targeted edits to tracked or pre-existing files are unsupported.
+
+## Apply approved Git hygiene candidates
+
+Freeze the same ordered exact branch names and linked-worktree paths, then pass only separately approved `GC-...` IDs:
+
+```text
+python scripts/apply_git_hygiene.py \
+  --workspace <exact-git-worktree-root> \
+  --branch <exact-local-branch> \
+  --worktree <exact-linked-worktree-path> \
+  --approve <GC-ID>
+```
+
+Git Apply must:
+
+- re-inspect the frozen targets and reject stale IDs, `PD-...` IDs, `PC-...` IDs, and any changed branch, worktree, or integration evidence;
+- validate Git references, linked-worktree metadata, and object connectivity before mutation, after quarantine, and after cleanup;
+- delete a merged local branch only through an exact compare-and-swap ref update while a temporary exact recovery ref exists;
+- move a clean linked worktree as a registered worktree to an exact sibling quarantine before validation, preserve its branch, and remove it without force only after validation passes;
+- restore quarantined worktrees and branch refs after failure, reporting `recovery-required` when exact recovery is blocked;
+- never delete remote branches, force-remove worktrees, prune broad metadata, change the active worktree, stage files, commit, or push.
+
+After Git Apply, report each exact branch or worktree outcome and whether temporary recovery state was discarded, restored, or retained.

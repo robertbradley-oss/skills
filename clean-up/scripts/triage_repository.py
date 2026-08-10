@@ -12,10 +12,11 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from discover_repository import discover, evidence_text, markdown_cell
+from inspect_git_hygiene import inspect_git_hygiene
 from inspect_repository import fingerprint_summary, inspect
 
 
-OUTPUT_SCHEMA = "clean-up-triage/v1"
+OUTPUT_SCHEMA = "clean-up-triage/v2"
 AUTO_INSPECT_SIGNALS = {"generated-residue", "temporary-file"}
 STRICT_CANDIDATE_KINDS = {
     "empty-directory", "ignored-generated", "remote-backed-release", "temporary-residue",
@@ -167,6 +168,33 @@ def unresolved_lead(lead: dict[str, Any], reason: str | None = None) -> dict[str
     }
 
 
+def git_hygiene_key(surface: str, target: str) -> tuple[str, str]:
+    if surface == "worktree":
+        return surface, os.path.normcase(str(Path(target).resolve(strict=False)))
+    return surface, target
+
+
+def triage_git_hygiene(root: Path, leads: list[dict[str, Any]], limit: int) -> tuple[dict[tuple[str, str], dict[str, Any]], list[dict[str, str]], bool]:
+    unique: dict[tuple[str, str], dict[str, Any]] = {}
+    for lead in leads:
+        if lead.get("surface") in {"branch", "worktree"}:
+            unique.setdefault(git_hygiene_key(lead["surface"], lead["target"]), lead)
+    selected = list(unique.values())[:limit]
+    branches = [lead["target"] for lead in selected if lead["surface"] == "branch"]
+    worktrees = [lead["target"] for lead in selected if lead["surface"] == "worktree"]
+    if not branches and not worktrees:
+        return {}, [], False
+    try:
+        inspection = inspect_git_hygiene(root, branches, worktrees)
+    except (OSError, ValueError) as exc:
+        return {}, [{"code": "git-hygiene-inspection-failed", "message": str(exc)}], len(unique) > limit
+    results = {
+        git_hygiene_key(item["surface"], item["target"]): item
+        for item in inspection.get("items", [])
+    }
+    return results, list(inspection.get("refusals", [])), len(unique) > limit
+
+
 def keep_lead(lead: dict[str, Any], reason: str) -> dict[str, Any]:
     item = unresolved_lead(lead, reason)
     return {
@@ -304,22 +332,28 @@ def verdict_for(result: dict[str, Any]) -> tuple[str, str]:
         or summary.get("filesystem_scan_truncated")
         or summary.get("duplicate_hash_budget_exhausted")
         or summary.get("auto_inspect_truncated")
+        or summary.get("git_hygiene_inspection_truncated")
     )
     candidates = summary["safe_to_remove_count"]
+    git_candidates = summary.get("git_hygiene_candidate_count", 0)
     recoverable = summary["recoverable_bytes"]
     unresolved = summary["unresolved_count"]
     hygiene = summary["git_hygiene_count"]
     if incomplete:
         return "incomplete", "The cleanup audit is incomplete; do not call the workspace clean from this run."
-    if candidates:
+    if candidates or git_candidates:
         unresolved_note = (
             f" {unresolved} unresolved lead(s) still prevent a fully clean verdict."
             if unresolved else ""
         )
+        parts = []
+        if candidates:
+            parts.append(f"{candidates} proven whole-path candidate(s) can recover {format_bytes(recoverable)}")
+        if git_candidates:
+            parts.append(f"{git_candidates} proven Git hygiene candidate(s) can be removed")
         return (
             "cleanup-recommended",
-            f"Cleanup is recommended: {candidates} proven whole-path candidate(s) can recover "
-            f"{format_bytes(recoverable)}.{unresolved_note}",
+            f"Cleanup is recommended: {'; '.join(parts)}.{unresolved_note}",
         )
     if unresolved:
         return (
@@ -337,10 +371,12 @@ def verdict_for(result: dict[str, Any]) -> tuple[str, str]:
 def triage(
     workspace: Path, git_base: str | None, max_leads: int,
     max_files: int = 50000, max_hash_bytes: int = 1024 * 1024 * 1024,
-    max_inspections: int = 50,
+    max_inspections: int = 50, max_git_inspections: int = 100,
 ) -> dict[str, Any]:
     if max_inspections <= 0:
         raise ValueError("max-inspections must be positive")
+    if max_git_inspections <= 0:
+        raise ValueError("max-git-inspections must be positive")
     discovery = discover(workspace, git_base, max_leads, max_files, max_hash_bytes)
     root = Path(discovery["workspace"])
     warnings = [
@@ -363,8 +399,10 @@ def triage(
         "keep": [],
         "unresolved": [],
         "git_hygiene": [],
+        "git_hygiene_candidates": [],
         "repository_attention": [],
         "proposed_authorization_set": [],
+        "proposed_git_authorization_set": [],
         "warnings": warnings,
         "review_required": True,
         "discovery": discovery,
@@ -379,6 +417,12 @@ def triage(
     path_results: dict[str, dict[str, Any]] = {}
     for lead in inspectable[:max_inspections]:
         path_results[lead["id"]] = triage_path_lead(root, lead, git_base)
+
+    git_results, git_refusals, git_inspection_truncated = triage_git_hygiene(
+        root, discovery["leads"], max_git_inspections,
+    )
+    result["warnings"].extend(git_refusals)
+    processed_git: set[tuple[str, str]] = set()
 
     for lead in discovery["leads"]:
         if lead["surface"] == "path":
@@ -413,7 +457,27 @@ def triage(
                         reason = "Automatic exact inspection limit was reached before this path."
                     result["unresolved"].append(unresolved_lead(lead, reason))
         elif lead["surface"] in {"branch", "worktree"}:
-            result["git_hygiene"].append(unresolved_lead(lead))
+            key = git_hygiene_key(lead["surface"], lead["target"])
+            if key in processed_git:
+                continue
+            processed_git.add(key)
+            item = git_results.get(key)
+            if item and item.get("classification") == "candidate":
+                result["git_hygiene_candidates"].append({
+                    "lead_id": lead["id"], "candidate_id": item["id"],
+                    "surface": item["surface"], "target": item["target"],
+                    "candidate_kind": item["candidate_kind"],
+                    "proposed_action": item["proposed_action"],
+                    "reason": item["reason"], "evidence": item["evidence"],
+                })
+            elif item:
+                result["git_hygiene"].append(unresolved_lead(lead, item.get("reason")))
+            else:
+                result["git_hygiene"].append(unresolved_lead(
+                    lead,
+                    "Automatic Git hygiene inspection limit was reached before this item."
+                    if git_inspection_truncated else None,
+                ))
         elif lead["surface"] == "repository":
             result["repository_attention"].append(unresolved_lead(lead))
         else:
@@ -427,10 +491,16 @@ def triage(
     result["keep"].sort(key=lambda item: item["path"])
     result["unresolved"].sort(key=lambda item: (-item.get("bytes", 0), item["target"]))
     result["git_hygiene"].sort(key=lambda item: (item["surface"], item["target"]))
+    result["git_hygiene_candidates"].sort(key=lambda item: (item["surface"], item["target"]))
     result["proposed_authorization_set"] = [
         item["candidate_id"] for item in result["safe_to_remove"] if item.get("candidate_id")
     ]
-    result["apply_supported"] = bool(result["proposed_authorization_set"])
+    result["proposed_git_authorization_set"] = [
+        item["candidate_id"] for item in result["git_hygiene_candidates"]
+    ]
+    result["apply_supported"] = bool(
+        result["proposed_authorization_set"] or result["proposed_git_authorization_set"]
+    )
     result["summary"] = {
         "discovery_lead_count": discovery["summary"]["lead_count"],
         "discovery_truncated": discovery["summary"]["truncated"],
@@ -438,12 +508,16 @@ def triage(
         "duplicate_hash_budget_exhausted": discovery["summary"].get("duplicate_hash_budget_exhausted", False),
         "auto_inspect_count": len(path_results),
         "auto_inspect_truncated": len(inspectable) > len(path_results),
+        "git_hygiene_inspect_count": len(git_results),
+        "git_hygiene_inspection_truncated": git_inspection_truncated,
         "safe_to_remove_count": len(result["safe_to_remove"]),
         "recoverable_bytes": sum(item.get("bytes", 0) for item in result["safe_to_remove"]),
         "kept_count": len(result["keep"]),
         "retained_bytes": sum(item.get("bytes", 0) for item in result["keep"]),
         "unresolved_count": len(result["unresolved"]) + len(result["repository_attention"]),
-        "git_hygiene_count": len(result["git_hygiene"]),
+        "git_hygiene_candidate_count": len(result["git_hygiene_candidates"]),
+        "git_hygiene_review_count": len(result["git_hygiene"]),
+        "git_hygiene_count": len(result["git_hygiene_candidates"]) + len(result["git_hygiene"]),
     }
     result["verdict"], result["headline"] = verdict_for(result)
     return result
@@ -500,18 +574,31 @@ def render_markdown(result: dict[str, Any], details_limit: int = 10) -> str:
         lines.append("No unresolved file or repository leads remain.")
 
     lines.extend(["", "## Git hygiene", ""])
+    if result["git_hygiene_candidates"]:
+        lines.extend([
+            "| Candidate ID | Surface | Exact target | Action | Evidence |",
+            "|---|---|---|---|---|",
+        ])
+        for item in result["git_hygiene_candidates"]:
+            lines.append(
+                f"| `{item['candidate_id']}` | `{markdown_cell(item['surface'])}` | "
+                f"`{markdown_cell(item['target'])}` | `{markdown_cell(item['proposed_action'])}` | "
+                f"{markdown_cell(item['reason'])} |"
+            )
+        authorization = ", ".join(f"`{item}`" for item in result["proposed_git_authorization_set"])
+        lines.extend(["", f"Proposed Git authorization set: {authorization}", ""])
     if result["git_hygiene"]:
         lines.append(
-            f"{len(result['git_hygiene'])} branch or worktree item(s) need a separate Git review; path Apply does not remove them."
+            f"{len(result['git_hygiene'])} branch or worktree item(s) remain review-only."
         )
-    else:
+    elif not result["git_hygiene_candidates"]:
         lines.append("No separate branch or worktree hygiene items were found.")
     if result["keep"]:
         lines.extend(["", f"Kept automatically with concrete evidence: {len(result['keep'])} path(s)."])
     lines.extend([
         "", "Triage and its exact inspections made no filesystem or Git mutations.",
         "Discovery `PD-...` IDs never authorize removal.",
-        "A `PC-...` candidate still requires separate explicit approval and fresh Apply verification.",
+        "Path `PC-...` and Git hygiene `GC-...` candidates require their separate Apply commands, explicit approval, and fresh verification.",
     ])
     if result["warnings"]:
         lines.extend(["", "Warnings:"])
@@ -530,6 +617,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-files", type=int, default=50000, help="Bound filesystem files examined")
     parser.add_argument("--max-hash-bytes", type=int, default=1024 * 1024 * 1024, help="Bound duplicate hashing")
     parser.add_argument("--max-inspections", type=int, default=50, help="Bound automatic exact inspections")
+    parser.add_argument("--max-git-inspections", type=int, default=100, help="Bound automatic branch/worktree inspections")
     parser.add_argument("--details-limit", type=int, default=10, help="Bound unresolved rows in Markdown")
     parser.add_argument("--format", choices=("json", "markdown"), default="json")
     return parser
@@ -543,7 +631,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result = triage(
             Path(args.workspace), args.git_base, args.max_leads,
-            args.max_files, args.max_hash_bytes, args.max_inspections,
+            args.max_files, args.max_hash_bytes, args.max_inspections, args.max_git_inspections,
         )
     except (OSError, ValueError) as exc:
         print(json.dumps({"schema": OUTPUT_SCHEMA, "error": str(exc)}, indent=2))
