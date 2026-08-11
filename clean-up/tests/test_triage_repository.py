@@ -317,6 +317,32 @@ class TriageRepositoryTests(unittest.TestCase):
             self.assertIn("## Tracked code", markdown)
             self.assertIn("DC-...` IDs are review handles only", markdown)
 
+    def test_javascript_dead_code_is_review_only_with_complete_triage_coverage(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.repository(Path(temporary), outputs=0)
+            source = root / "src" / "helper.jsx"
+            source.parent.mkdir()
+            source.write_text(
+                "function unusedHelper() { return <span />; }\n", encoding="ascii",
+            )
+            self.git(root, "add", "src/helper.jsx")
+            self.git(root, "commit", "-qm", "add JavaScript source")
+
+            result = triage(root, None, 50)
+
+            self.assertEqual(result["verdict"], "clean")
+            self.assertEqual([item["symbol"] for item in result["tracked_code"]], ["unusedHelper"])
+            finding = result["tracked_code"][0]
+            self.assertEqual(finding["evidence"]["language"], "javascript")
+            self.assertEqual(finding["classification"], "review")
+            self.assertEqual(finding["proposed_action"], "none")
+            self.assertEqual(result["tracked_code_coverage"], [])
+            self.assertEqual(result["proposed_authorization_set"], [])
+            self.assertEqual(result["proposed_git_authorization_set"], [])
+            self.assertEqual(result["summary"]["tracked_code_coverage_gap_count"], 0)
+            self.assertEqual(result["summary"]["unresolved_count"], 0)
+            self.assertIn("tracked-code review lead(s) remain report-only", result["headline"])
+
     def test_file_organization_opportunity_is_decided_without_user_review(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = self.repository(Path(temporary), outputs=0)
