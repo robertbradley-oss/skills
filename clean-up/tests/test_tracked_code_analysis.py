@@ -118,12 +118,16 @@ class Sample
         with tempfile.TemporaryDirectory() as temporary:
             root = self.repository(Path(temporary), {
                 "src/Sample.cs": "class Sample { }\n",
+                "tools/legacy.cjs": "function legacyHelper() { return 1; }\n",
                 "tools/build.py": "def invoke_unused():\n    pass\n",
+                "tools/worker.mjs": "function moduleHelper() { return 1; }\n",
             })
 
             result = analyze_tracked_code(root)
 
-            self.assertEqual(result["summary"]["unsupported_extensions"], {".py": 1})
+            self.assertEqual(
+                result["summary"]["unsupported_extensions"], {".cjs": 1, ".mjs": 1, ".py": 1},
+            )
             self.assertFalse(result["summary"]["coverage_complete"])
             self.assertIn("unsupported-source-languages", {item["code"] for item in result["coverage_gaps"]})
 
@@ -296,6 +300,23 @@ registry["dynamicNamed"]();
             result = analyze_tracked_code(root)
 
             self.assertEqual([item["symbol"] for item in result["findings"]], ["unusedGenerator"])
+
+    def test_javascript_comments_and_templates_are_not_declaration_sources(self) -> None:
+        source = """/*
+function removedLongAgo() { return 1; }
+*/
+const example = `
+function templateTextOnly() { return 2; }
+`;
+console.log(example);
+function actualUnused() { return 3; }
+"""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.repository(Path(temporary), {"src/helper.js": source})
+
+            result = analyze_tracked_code(root)
+
+            self.assertEqual([item["symbol"] for item in result["findings"]], ["actualUnused"])
 
     def test_modified_javascript_is_analyzed_and_state_bound(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

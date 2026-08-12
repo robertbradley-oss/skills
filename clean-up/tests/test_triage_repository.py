@@ -299,8 +299,10 @@ class TriageRepositoryTests(unittest.TestCase):
             )
             tools = root / "tools"
             tools.mkdir()
-            (tools / "build.py").write_text("def invoke_build():\n    pass\n", encoding="ascii")
-            self.git(root, "add", "src/Sample.cs", "tools/build.py")
+            (tools / "build.mjs").write_text(
+                "function invokeBuild() { return 1; }\n", encoding="ascii",
+            )
+            self.git(root, "add", "src/Sample.cs", "tools/build.mjs")
             self.git(root, "commit", "-qm", "add tracked code")
 
             result = triage(root, None, 50)
@@ -314,6 +316,11 @@ class TriageRepositoryTests(unittest.TestCase):
             self.assertIn("unsupported-source-languages", {
                 item["code"] for item in result["tracked_code_coverage"]
             })
+            extension_gap = next(
+                item for item in result["tracked_code_coverage"]
+                if item["code"] == "unsupported-source-languages"
+            )
+            self.assertEqual(extension_gap["extensions"], {".mjs": 1})
             self.assertIn("## Tracked code", markdown)
             self.assertIn("DC-...` IDs are review handles only", markdown)
 

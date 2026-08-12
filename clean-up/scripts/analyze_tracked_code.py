@@ -28,9 +28,9 @@ REFERENCE_EXTENSIONS = {
     ".ts", ".tsx", ".xaml", ".xml",
 }
 OTHER_SOURCE_EXTENSIONS = {
-    ".c", ".cc", ".cpp", ".fs", ".go", ".h", ".hpp", ".java",
+    ".c", ".cc", ".cjs", ".cpp", ".fs", ".go", ".h", ".hpp", ".java",
     ".kt", ".kts", ".php", ".psm1", ".py", ".rb", ".rs",
-    ".sh", ".swift", ".vb",
+    ".mjs", ".sh", ".swift", ".vb",
 }
 GENERATED_CSHARP_SUFFIXES = (".designer.cs", ".g.cs", ".g.i.cs", ".generated.cs")
 GENERATED_JAVASCRIPT_SUFFIXES = (".generated.js", ".generated.jsx", ".min.js", ".min.jsx")
@@ -248,35 +248,94 @@ def typescript_decorator_context(lines: list[str], index: int) -> bool:
     return cursor >= 0 and lines[cursor].lstrip().startswith("@")
 
 
+def javascript_declaration_source(text: str) -> str:
+    """Mask comments and strings while preserving line and character positions."""
+    masked: list[str] = []
+    state = "code"
+    quote = ""
+    escaped = False
+    index = 0
+    while index < len(text):
+        current = text[index]
+        following = text[index + 1] if index + 1 < len(text) else ""
+        if state == "line-comment":
+            if current in "\r\n":
+                masked.append(current)
+                state = "code"
+            else:
+                masked.append(" ")
+            index += 1
+            continue
+        if state == "block-comment":
+            if current == "*" and following == "/":
+                masked.extend((" ", " "))
+                state = "code"
+                index += 2
+            else:
+                masked.append(current if current in "\r\n" else " ")
+                index += 1
+            continue
+        if state == "string":
+            masked.append(current if current in "\r\n" else " ")
+            if escaped:
+                escaped = False
+            elif current == "\\":
+                escaped = True
+            elif current == quote:
+                state = "code"
+                quote = ""
+            index += 1
+            continue
+        if current == "/" and following == "/":
+            masked.extend((" ", " "))
+            state = "line-comment"
+            index += 2
+        elif current == "/" and following == "*":
+            masked.extend((" ", " "))
+            state = "block-comment"
+            index += 2
+        elif current in {"'", '"', "`"}:
+            masked.append(" ")
+            state = "string"
+            quote = current
+            escaped = False
+            index += 1
+        else:
+            masked.append(current)
+            index += 1
+    return "".join(masked)
+
+
 def javascript_declarations(relative: str, text: str, digest: str) -> list[dict[str, Any]]:
     lowered = relative.lower()
     if lowered.endswith(GENERATED_JAVASCRIPT_SUFFIXES) or "@generated" in text[:1000].lower():
         return []
     declarations: list[dict[str, Any]] = []
     lines = text.splitlines()
-    for index, line in enumerate(lines):
-        stripped = line.strip()
+    declaration_lines = javascript_declaration_source(text).splitlines()
+    for index, (line, declaration_line) in enumerate(zip(lines, declaration_lines, strict=True)):
+        stripped = declaration_line.strip()
         if not stripped or stripped.startswith(("//", "/*", "*", "export ", "import ")):
             continue
-        match = JAVASCRIPT_HASH_MEMBER_RE.match(line)
+        match = JAVASCRIPT_HASH_MEMBER_RE.match(declaration_line)
         if match is not None:
             kind = "method" if match.group("marker") == "(" else "field"
             private_member = True
         else:
             kind = ""
             private_member = False
-        if match is None and line == line.lstrip():
-            match = JAVASCRIPT_TOP_LEVEL_RE.match(line)
+        if match is None and declaration_line == declaration_line.lstrip():
+            match = JAVASCRIPT_TOP_LEVEL_RE.match(declaration_line)
             if match is not None:
                 kind = match.group("kind")
-        if match is None and line == line.lstrip():
-            match = JAVASCRIPT_TOP_LEVEL_VARIABLE_RE.match(line)
+        if match is None and declaration_line == declaration_line.lstrip():
+            match = JAVASCRIPT_TOP_LEVEL_VARIABLE_RE.match(declaration_line)
             if match is not None:
                 kind = "variable"
         if match is None:
             continue
         name = match.group("name")
-        if name == "constructor" or typescript_decorator_context(lines, index):
+        if name == "constructor" or typescript_decorator_context(declaration_lines, index):
             continue
         declarations.append({
             "language": "javascript",
@@ -285,7 +344,7 @@ def javascript_declarations(relative: str, text: str, digest: str) -> list[dict[
             "kind": kind,
             "name": name,
             "file_sha256": digest,
-            "declaration": stripped[:300],
+            "declaration": line.strip()[:300],
             "private_member": private_member,
         })
     return declarations
