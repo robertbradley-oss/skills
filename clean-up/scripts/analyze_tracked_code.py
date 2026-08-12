@@ -17,9 +17,10 @@ from discover_repository import markdown_cell
 from inspect_repository import decode_path, is_reserved_path, run_git
 
 
-OUTPUT_SCHEMA = "clean-up-tracked-code/v3"
+OUTPUT_SCHEMA = "clean-up-tracked-code/v4"
 SUPPORTED_DECLARATION_EXTENSIONS = {
-    ".cs": "csharp", ".ps1": "powershell", ".ts": "typescript", ".tsx": "typescript",
+    ".cs": "csharp", ".js": "javascript", ".jsx": "javascript",
+    ".ps1": "powershell", ".ts": "typescript", ".tsx": "typescript",
 }
 REFERENCE_EXTENSIONS = {
     ".axaml", ".cjs", ".config", ".cs", ".csproj", ".js", ".json", ".jsx",
@@ -27,11 +28,12 @@ REFERENCE_EXTENSIONS = {
     ".ts", ".tsx", ".xaml", ".xml",
 }
 OTHER_SOURCE_EXTENSIONS = {
-    ".c", ".cc", ".cpp", ".fs", ".go", ".h", ".hpp", ".java",
-    ".js", ".jsx", ".kt", ".kts", ".php", ".psm1", ".py", ".rb", ".rs",
-    ".sh", ".swift", ".vb",
+    ".c", ".cc", ".cjs", ".cpp", ".fs", ".go", ".h", ".hpp", ".java",
+    ".kt", ".kts", ".php", ".psm1", ".py", ".rb", ".rs",
+    ".mjs", ".sh", ".swift", ".vb",
 }
 GENERATED_CSHARP_SUFFIXES = (".designer.cs", ".g.cs", ".g.i.cs", ".generated.cs")
+GENERATED_JAVASCRIPT_SUFFIXES = (".generated.js", ".generated.jsx", ".min.js", ".min.jsx")
 GENERATED_TYPESCRIPT_SUFFIXES = (".d.ts", ".generated.ts", ".generated.tsx")
 TOKEN_RE = re.compile(r"(?<![A-Za-z0-9_])@?[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_])")
 TYPESCRIPT_TOKEN_RE = re.compile(
@@ -65,6 +67,17 @@ TYPESCRIPT_PRIVATE_FIELD_RE = re.compile(
 TYPESCRIPT_HASH_MEMBER_RE = re.compile(
     r"^\s*#(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)[?!]?\s*"
     r"(?:<[^>{};()]+>\s*)?(?P<marker>\(|:|=|;)"
+)
+JAVASCRIPT_TOP_LEVEL_RE = re.compile(
+    r"^(?:(?:async)\s+)*(?P<kind>function|class)(?:\s*\*\s*|\s+)"
+    r"(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\b"
+)
+JAVASCRIPT_TOP_LEVEL_VARIABLE_RE = re.compile(
+    r"^(?P<kind>const|let|var)\s+(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*="
+)
+JAVASCRIPT_HASH_MEMBER_RE = re.compile(
+    r"^\s*(?:(?:static|async|get|set)\s+)*#(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*"
+    r"(?P<marker>\(|=|;)"
 )
 TYPE_DECLARATION_RE = re.compile(r"\b(?:class|record|struct|interface|enum|delegate)\b")
 METHOD_RE = re.compile(
@@ -235,6 +248,108 @@ def typescript_decorator_context(lines: list[str], index: int) -> bool:
     return cursor >= 0 and lines[cursor].lstrip().startswith("@")
 
 
+def javascript_declaration_source(text: str) -> str:
+    """Mask comments and strings while preserving line and character positions."""
+    masked: list[str] = []
+    state = "code"
+    quote = ""
+    escaped = False
+    index = 0
+    while index < len(text):
+        current = text[index]
+        following = text[index + 1] if index + 1 < len(text) else ""
+        if state == "line-comment":
+            if current in "\r\n":
+                masked.append(current)
+                state = "code"
+            else:
+                masked.append(" ")
+            index += 1
+            continue
+        if state == "block-comment":
+            if current == "*" and following == "/":
+                masked.extend((" ", " "))
+                state = "code"
+                index += 2
+            else:
+                masked.append(current if current in "\r\n" else " ")
+                index += 1
+            continue
+        if state == "string":
+            masked.append(current if current in "\r\n" else " ")
+            if escaped:
+                escaped = False
+            elif current == "\\":
+                escaped = True
+            elif current == quote:
+                state = "code"
+                quote = ""
+            index += 1
+            continue
+        if current == "/" and following == "/":
+            masked.extend((" ", " "))
+            state = "line-comment"
+            index += 2
+        elif current == "/" and following == "*":
+            masked.extend((" ", " "))
+            state = "block-comment"
+            index += 2
+        elif current in {"'", '"', "`"}:
+            masked.append(" ")
+            state = "string"
+            quote = current
+            escaped = False
+            index += 1
+        else:
+            masked.append(current)
+            index += 1
+    return "".join(masked)
+
+
+def javascript_declarations(relative: str, text: str, digest: str) -> list[dict[str, Any]]:
+    lowered = relative.lower()
+    if lowered.endswith(GENERATED_JAVASCRIPT_SUFFIXES) or "@generated" in text[:1000].lower():
+        return []
+    declarations: list[dict[str, Any]] = []
+    lines = text.splitlines()
+    declaration_lines = javascript_declaration_source(text).splitlines()
+    for index, (line, declaration_line) in enumerate(zip(lines, declaration_lines, strict=True)):
+        stripped = declaration_line.strip()
+        if not stripped or stripped.startswith(("//", "/*", "*", "export ", "import ")):
+            continue
+        match = JAVASCRIPT_HASH_MEMBER_RE.match(declaration_line)
+        if match is not None:
+            kind = "method" if match.group("marker") == "(" else "field"
+            private_member = True
+        else:
+            kind = ""
+            private_member = False
+        if match is None and declaration_line == declaration_line.lstrip():
+            match = JAVASCRIPT_TOP_LEVEL_RE.match(declaration_line)
+            if match is not None:
+                kind = match.group("kind")
+        if match is None and declaration_line == declaration_line.lstrip():
+            match = JAVASCRIPT_TOP_LEVEL_VARIABLE_RE.match(declaration_line)
+            if match is not None:
+                kind = "variable"
+        if match is None:
+            continue
+        name = match.group("name")
+        if name == "constructor" or typescript_decorator_context(declaration_lines, index):
+            continue
+        declarations.append({
+            "language": "javascript",
+            "path": relative,
+            "line": index + 1,
+            "kind": kind,
+            "name": name,
+            "file_sha256": digest,
+            "declaration": line.strip()[:300],
+            "private_member": private_member,
+        })
+    return declarations
+
+
 def typescript_declarations(relative: str, text: str, digest: str) -> list[dict[str, Any]]:
     lowered = relative.lower()
     if lowered.endswith(GENERATED_TYPESCRIPT_SUFFIXES) or "@generated" in text[:1000].lower():
@@ -289,6 +404,8 @@ def declaration_signal(declaration: dict[str, Any]) -> str:
     language = declaration["language"]
     if language == "powershell":
         return "unreferenced-script-function"
+    if language == "javascript" and not declaration.get("private_member"):
+        return "unreferenced-javascript-declaration"
     if language == "typescript" and not declaration.get("private_member"):
         return "unreferenced-typescript-declaration"
     return "unreferenced-private-member"
@@ -305,6 +422,12 @@ def declaration_reason(declaration: dict[str, Any], changed_file: bool) -> str:
         reason = (
             "The PowerShell function name appears only at its declaration in the bounded tracked reference corpus. "
             "External invocation, dot-sourcing, generated calls, or dynamic command construction are not disproven."
+        )
+    elif language == "javascript":
+        reason = (
+            "The unexported or explicitly private JavaScript declaration appears only at its declaration in the "
+            "bounded tracked JavaScript and TypeScript reference corpus. Framework file conventions, dynamic "
+            "imports and property access, generated access, templates, and external callers are not disproven."
         )
     else:
         reason = (
@@ -396,6 +519,8 @@ def analyze_tracked_code(
                 changed_supported.append(relative)
             if suffix == ".cs":
                 declarations.extend(csharp_declarations(relative, text, file_sha256(data)))
+            elif suffix in {".js", ".jsx"}:
+                declarations.extend(javascript_declarations(relative, text, file_sha256(data)))
             elif suffix == ".ps1":
                 declarations.extend(powershell_declarations(relative, text, file_sha256(data)))
             else:
@@ -442,7 +567,7 @@ def analyze_tracked_code(
                 "signal": declaration_signal(declaration),
                 "confidence": (
                     "weak"
-                    if changed_file or declaration["language"] in {"powershell", "typescript"}
+                    if changed_file or declaration["language"] in {"javascript", "powershell", "typescript"}
                     else "moderate"
                 ),
                 "classification": "review",

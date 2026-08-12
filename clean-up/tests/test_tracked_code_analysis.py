@@ -55,7 +55,7 @@ class Sample
             result = analyze_tracked_code(root)
             findings = {item["symbol"]: item for item in result["findings"]}
 
-            self.assertEqual(result["schema"], "clean-up-tracked-code/v3")
+            self.assertEqual(result["schema"], "clean-up-tracked-code/v4")
             self.assertFalse(result["mutations_performed"])
             self.assertFalse(result["apply_supported"])
             self.assertEqual(set(findings), {"unusedField", "Unused"})
@@ -118,12 +118,16 @@ class Sample
         with tempfile.TemporaryDirectory() as temporary:
             root = self.repository(Path(temporary), {
                 "src/Sample.cs": "class Sample { }\n",
+                "tools/legacy.cjs": "function legacyHelper() { return 1; }\n",
                 "tools/build.py": "def invoke_unused():\n    pass\n",
+                "tools/worker.mjs": "function moduleHelper() { return 1; }\n",
             })
 
             result = analyze_tracked_code(root)
 
-            self.assertEqual(result["summary"]["unsupported_extensions"], {".py": 1})
+            self.assertEqual(
+                result["summary"]["unsupported_extensions"], {".cjs": 1, ".mjs": 1, ".py": 1},
+            )
             self.assertFalse(result["summary"]["coverage_complete"])
             self.assertIn("unsupported-source-languages", {item["code"] for item in result["coverage_gaps"]})
 
@@ -218,8 +222,124 @@ export default function Page() { return <UsedComponent />; }
 
             self.assertNotIn("sharedHelper", {item["symbol"] for item in result["findings"]})
             self.assertNotIn("generatedOnly", {item["symbol"] for item in result["findings"]})
-            self.assertEqual(result["summary"]["supported_languages"], {"typescript": 2})
-            self.assertEqual(result["summary"]["unsupported_extensions"], {".js": 1})
+            self.assertEqual(
+                result["summary"]["supported_languages"], {"javascript": 1, "typescript": 2},
+            )
+            self.assertEqual(result["summary"]["unsupported_extensions"], {})
+
+    def test_javascript_and_jsx_emit_only_conservative_unreferenced_leads(self) -> None:
+        source = """function usedHelper() { return 1; }
+function unusedHelper() { return 2; }
+const UsedComponent = () => <span>{usedHelper()}</span>;
+const unusedValue = 3;
+var unusedLegacy = 4;
+export function exportedHandler() { return 5; }
+
+class Worker {
+    #usedMethod() { return 1; }
+    static #unusedMethod() { return 2; }
+    #unusedSecret = 3;
+    @frameworkManaged()
+    #decoratedOnly() { return 4; }
+    run() { return this.#usedMethod(); }
+}
+
+export const worker = new Worker();
+export default function Page() { return <UsedComponent />; }
+"""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.repository(Path(temporary), {"src/page.jsx": source})
+
+            result = analyze_tracked_code(root)
+            findings = {item["symbol"]: item for item in result["findings"]}
+
+            self.assertEqual(
+                set(findings),
+                {"unusedHelper", "unusedValue", "unusedLegacy", "unusedMethod", "unusedSecret"},
+            )
+            self.assertEqual(result["summary"]["supported_languages"], {"javascript": 1})
+            self.assertEqual(result["summary"]["unsupported_extensions"], {})
+            self.assertTrue(result["summary"]["coverage_complete"])
+            self.assertTrue(all(item["confidence"] == "weak" for item in findings.values()))
+            self.assertTrue(all(item["classification"] == "review" for item in findings.values()))
+            self.assertEqual(findings["unusedMethod"]["signal"], "unreferenced-private-member")
+            self.assertEqual(
+                findings["unusedHelper"]["signal"], "unreferenced-javascript-declaration",
+            )
+
+    def test_javascript_references_cross_jsx_and_typescript_and_generated_files_are_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.repository(Path(temporary), {
+                "src/helper.js": "function sharedHelper() { return 1; }\n",
+                "src/use.tsx": "export const value = sharedHelper();\n",
+                "src/component.jsx": "export const View = () => <span>{sharedHelper()}</span>;\n",
+                "src/generated.generated.js": "function generatedOnly() { return 1; }\n",
+            })
+
+            result = analyze_tracked_code(root)
+
+            symbols = {item["symbol"] for item in result["findings"]}
+            self.assertNotIn("sharedHelper", symbols)
+            self.assertNotIn("generatedOnly", symbols)
+            self.assertEqual(
+                result["summary"]["supported_languages"], {"javascript": 3, "typescript": 1},
+            )
+
+    def test_javascript_commonjs_dynamic_and_string_references_suppress_leads(self) -> None:
+        source = """function commonJsHandler() { return 1; }
+function stringNamed() { return 2; }
+function dynamicNamed() { return 3; }
+function* unusedGenerator() { yield 4; }
+module.exports = { commonJsHandler };
+console.log("stringNamed");
+registry["dynamicNamed"]();
+"""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.repository(Path(temporary), {"src/helper.js": source})
+
+            result = analyze_tracked_code(root)
+
+            self.assertEqual([item["symbol"] for item in result["findings"]], ["unusedGenerator"])
+
+    def test_javascript_comments_and_templates_are_not_declaration_sources(self) -> None:
+        source = """/*
+function removedLongAgo() { return 1; }
+*/
+const example = `
+function templateTextOnly() { return 2; }
+`;
+console.log(example);
+function actualUnused() { return 3; }
+"""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.repository(Path(temporary), {"src/helper.js": source})
+
+            result = analyze_tracked_code(root)
+
+            self.assertEqual([item["symbol"] for item in result["findings"]], ["actualUnused"])
+
+    def test_modified_javascript_is_analyzed_and_state_bound(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.repository(Path(temporary), {"src/helper.js": "export const value = 1;\n"})
+            (root / "src" / "helper.js").write_text(
+                "function unfinishedHelper() { return 1; }\n", encoding="ascii",
+            )
+
+            changed = analyze_tracked_code(root)
+            finding = changed["findings"][0]
+
+            self.assertEqual(finding["symbol"], "unfinishedHelper")
+            self.assertEqual(finding["git_state"], "tracked-changed")
+            self.assertTrue(finding["evidence"]["changed_file"])
+            self.assertIn("modified worktree content", finding["reason"])
+            changed_id = finding["id"]
+
+            self.git(root, "add", "src/helper.js")
+            self.git(root, "commit", "-qm", "accept helper")
+            clean = analyze_tracked_code(root)
+
+            self.assertEqual(clean["findings"][0]["git_state"], "tracked-clean")
+            self.assertNotEqual(changed_id, clean["findings"][0]["id"])
 
     def test_modified_typescript_is_analyzed_and_state_bound(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

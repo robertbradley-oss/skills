@@ -407,6 +407,7 @@ def verdict_for(result: dict[str, Any]) -> tuple[str, str]:
     recoverable = summary["recoverable_bytes"]
     unresolved = summary["unresolved_count"]
     hygiene = summary["git_hygiene_count"]
+    code_reviews = summary.get("tracked_code_review_count", 0)
     if incomplete:
         return "incomplete", "The cleanup audit is incomplete; do not call the workspace clean from this run."
     if candidates or git_candidates:
@@ -439,6 +440,11 @@ def verdict_for(result: dict[str, Any]) -> tuple[str, str]:
         return (
             "generally-clean-git-hygiene",
             f"File cleanup is complete; {hygiene} branch or worktree hygiene item(s) remain separate.",
+        )
+    if code_reviews:
+        return (
+            "clean",
+            f"The workspace is generally clean; {code_reviews} tracked-code review lead(s) remain report-only.",
         )
     return "clean", "The workspace is clean based on the completed read-only audit."
 
@@ -673,8 +679,7 @@ def triage(
         ),
     }
     result["summary"]["unresolved_count"] += (
-        result["summary"]["tracked_code_review_count"]
-        + result["summary"]["tracked_code_coverage_gap_count"]
+        result["summary"]["tracked_code_coverage_gap_count"]
         + result["summary"]["file_organization_coverage_gap_count"]
     )
     result["verdict"], result["headline"] = verdict_for(result)
