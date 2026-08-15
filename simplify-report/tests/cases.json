@@ -17,7 +17,8 @@
   "output_contract": [
     "Starts with a labeled Bottom line that states the overall result.",
     "Includes every relevant question section and omits sections that add no useful information.",
-    "Uses no more than three sentences in any included section.",
+    "Uses as many short sentences as needed for a complete, genuinely easy-to-understand explanation, with no fixed sentence limit.",
+    "Does not omit a necessary explanation merely to keep the answer short.",
     "Preserves severity, uncertainty, mixed outcomes, and actionable evidence.",
     "Distinguishes reported facts from interpretation.",
     "Does not rerun the check or invent remediation."
@@ -75,6 +76,16 @@
         "Keeps the critical severity and does not euphemize the exposure.",
         "States the practical customer-data risk in plain language.",
         "Does not assign blame or invent unsupported forensic conclusions."
+      ]
+    },
+    {
+      "name": "complex_failure_needs_full_explanation",
+      "report": "Deployment: BLOCKED\nCause: database migration 2026_08_15_add_accounts timed out while waiting for a lock\nLock holder: nightly billing export\nApplication version: unchanged\nCustomer traffic: still served by the previous version\nRetry condition: billing export must finish or release the lock",
+      "expected": [
+        "Explains in simple steps that the new version was not deployed because two database jobs needed the same protected resource at the same time.",
+        "Makes clear that customers still have the previous version rather than implying the application is offline.",
+        "Uses however many short sentences are needed to explain the lock, timeout, current state, and supported next action.",
+        "Does not omit necessary context to satisfy a sentence limit."
       ]
     }
   ]

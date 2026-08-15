@@ -25,12 +25,13 @@ Follow a format the user explicitly requests. Otherwise:
    - **What worked?** Explain the most meaningful successful parts without implying that they made the overall result pass.
    - **What needs attention?** Explain the failure, warning, uncertainty, or unexpected result and why it matters.
    - **What should I do?** Give the best first action supported by the report. When materially different choices exist, name the decision and briefly explain the options instead of choosing for the user.
-3. Use one to three sentences for **Bottom line** and for each included question. Prefer fewer sentences when they are enough.
+3. Use as many sentences as needed to make the explanation genuinely easy to understand. Prefer short sentences that explain one idea at a time, and stop when the user has enough context to understand the result and next step. Never omit a necessary explanation just to make the answer shorter.
 4. Keep the full answer inside the bottom line and selected questions. Do not add an opener, closing sentence, raw evidence dump, report path, taxonomy, or offer to explain more unless the user asks.
 
 ## Writing rules
 
-- Use calm, respectful, everyday language. "Explain like I'm five" means simpler words, not baby talk.
+- Use calm, respectful, everyday language. "Explain like I'm five" means assuming no technical background, using simpler words, and explaining unfamiliar ideas without baby talk.
+- Break complicated ideas into small steps. Use a familiar comparison only when it makes the meaning clearer.
 - Lead with practical meaning, not the report format or the analysis process.
 - Preserve severity. Never turn failed, blocked, incomplete, unsafe, or uncertain into passed or okay.
 - Preserve mixed outcomes explicitly. State both a successful component and a failed overall result when both are true.
