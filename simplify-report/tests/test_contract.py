@@ -43,15 +43,15 @@ class SimplifyContractTests(unittest.TestCase):
     def test_eval_contract_matches_skill_instructions(self) -> None:
         contract = "\n".join(self.cases["output_contract"])
 
-        self.assertIn("**Bottom line.**", self.skill)
-        self.assertIn("Use as many sentences as needed", self.skill)
-        self.assertIn("Never omit a necessary explanation", self.skill)
+        self.assertIn("Follow the user's requested format", self.skill)
+        self.assertIn("Use as many short sentences as needed", self.skill)
+        self.assertIn("never omit necessary context", self.skill)
         self.assertNotRegex(
             self.skill,
             re.compile(r"(?:one|1) to (?:three|3) sentences|no more than (?:three|3) sentences", re.IGNORECASE),
         )
-        self.assertIn("Include every relevant question", self.skill)
-        self.assertIn("verify that it matches the report", self.skill)
+        self.assertIn("preserving its conclusion, severity, uncertainty", self.skill)
+        self.assertIn("Distinguish observed facts from likely causes", self.skill)
         self.assertRegex(contract, re.compile(r"no fixed sentence limit", re.IGNORECASE))
         self.assertRegex(contract, re.compile(r"does not omit a necessary explanation", re.IGNORECASE))
         self.assertRegex(contract, re.compile(r"severity.*uncertainty.*mixed outcomes", re.IGNORECASE))

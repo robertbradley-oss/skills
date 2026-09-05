@@ -1,0 +1,7 @@
+interface:
+  display_name: "Robert Workflow"
+  short_description: "Coordinate how Robert and Codex work together"
+  default_prompt: "Use $robert-workflow to choose the smallest effective process for this task."
+
+policy:
+  allow_implicit_invocation: true

@@ -9,16 +9,15 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 test("skill uses a single-workflow fast path", async () => {
   const skill = await fsp.readFile(path.join(root, "SKILL.md"), "utf8");
 
-  assert.match(skill, /Keep this fast\./u);
-  assert.match(skill, /context already present in the conversation/u);
-  assert.match(skill, /Call `list_projects` once/u);
-  assert.match(skill, /Call `create_thread` once/u);
-  assert.match(skill, /environment: \{ type: "local" \}/u);
-  assert.match(skill, /new task is not an implicit request for a new Git worktree/u);
-  assert.match(skill, /only when the user explicitly requests an isolated worktree/u);
-  assert.match(skill, /Never rely on an inferred `main`, `master`, or default branch/u);
-  assert.match(skill, /do not wait for the new task to run/u);
-  assert.match(skill, /Do not retry automatically/u);
+  assert.match(skill, /Use conversation context/u);
+  assert.match(skill, /Only create a task when the user explicitly requests one/u);
+  assert.match(skill, /Discover the saved project/u);
+  assert.match(skill, /current `create_thread` contract/u);
+  assert.match(skill, /honoring an explicit user request/u);
+  assert.match(skill, /Do not invent a branch/u);
+  assert.match(skill, /Create one task/u);
+  assert.match(skill, /do not retry an uncertain creation blindly/u);
+  assert.match(skill, /or wait for the destination to finish/u);
   assert.match(skill, /Portable handoff/u);
   assert.doesNotMatch(skill, /references\/|scripts\//u);
 });
@@ -51,7 +50,7 @@ test("metadata remains concise and routable", async () => {
   const frontmatter = skill.slice(0, skill.indexOf("\n---", 4) + 4);
   assert.equal(frontmatter, `---
 name: clean-handoff
-description: Create one new Codex task with the minimum useful context, or return that context as copyable text. Use when the user asks to hand off, continue in a new task, or make a portable handoff.
+description: "Prepare a concise handoff or create a new task when explicitly requested."
 ---`);
 
   const agents = await fsp.readFile(path.join(root, "agents", "openai.yaml"), "utf8");

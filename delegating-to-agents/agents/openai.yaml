@@ -1,0 +1,7 @@
+interface:
+  display_name: "Delegating to Agents"
+  short_description: "Scope and coordinate subagent work"
+  default_prompt: "Use $delegating-to-agents to decide how to split this task across agents."
+
+policy:
+  allow_implicit_invocation: true

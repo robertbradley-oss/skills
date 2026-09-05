@@ -1,0 +1,7 @@
+interface:
+  display_name: "Effective Agent Skills"
+  short_description: "Write and audit reusable agent skills"
+  default_prompt: "Use $effective-agent-skills to review this SKILL.md and suggest concrete improvements."
+
+policy:
+  allow_implicit_invocation: true

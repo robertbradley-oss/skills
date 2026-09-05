@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run General QA"
+  short_description: "Run a broad, evidence-based project QA pass"
+  default_prompt: "Use $run-general-qa to inspect this project and run the broadest safe QA pass available."

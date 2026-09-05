@@ -15,8 +15,8 @@
     ]
   },
   "output_contract": [
-    "Starts with a labeled Bottom line that states the overall result.",
-    "Includes every relevant question section and omits sections that add no useful information.",
+    "Leads with the overall result and its practical meaning.",
+    "Follows the user's requested format and includes relevant successes, failures, and next steps without requiring a template.",
     "Uses as many short sentences as needed for a complete, genuinely easy-to-understand explanation, with no fixed sentence limit.",
     "Does not omit a necessary explanation merely to keep the answer short.",
     "Preserves severity, uncertainty, mixed outcomes, and actionable evidence.",

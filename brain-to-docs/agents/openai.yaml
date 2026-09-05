@@ -1,0 +1,7 @@
+interface:
+  display_name: "Brain to Docs"
+  short_description: "Turn project thoughts into durable docs"
+  default_prompt: "Use $brain-to-docs to interview me and build out this project's docs."
+
+policy:
+  allow_implicit_invocation: true

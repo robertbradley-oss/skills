@@ -11,7 +11,7 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SKILLS = ("clean-handoff", "clean-up", "gameplan", "simplify-report")
+SKILLS = tuple(sorted(p.name for p in ROOT.iterdir() if p.is_dir() and (p / "SKILL.md").is_file()))
 NAME_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 FRONTMATTER_PATTERN = re.compile(r"^---\r?\n(.*?)\r?\n---(?:\r?\n|$)", re.DOTALL)
 
@@ -27,8 +27,6 @@ def validate_skill(directory_name: str) -> None:
 
     if not skill_file.is_file():
         fail(f"{directory_name}: SKILL.md is missing")
-    if not agent_file.is_file():
-        fail(f"{directory_name}: agents/openai.yaml is missing")
 
     content = skill_file.read_text(encoding="utf-8")
     match = FRONTMATTER_PATTERN.match(content)
@@ -38,8 +36,8 @@ def validate_skill(directory_name: str) -> None:
     frontmatter = yaml.safe_load(match.group(1))
     if not isinstance(frontmatter, dict):
         fail(f"{directory_name}: frontmatter must be a mapping")
-    if set(frontmatter) != {"name", "description"}:
-        fail(f"{directory_name}: frontmatter must contain only name and description")
+    if not {"name", "description"}.issubset(frontmatter):
+        fail(f"{directory_name}: frontmatter must contain name and description")
 
     name = frontmatter["name"]
     description = frontmatter["description"]
@@ -56,13 +54,19 @@ def validate_skill(directory_name: str) -> None:
     if len(content.splitlines()) > 500:
         fail(f"{directory_name}: SKILL.md exceeds the 500-line context guideline")
 
+    if not agent_file.is_file():
+        return  # UI metadata is optional for standalone skills.
     agent_metadata = yaml.safe_load(agent_file.read_text(encoding="utf-8"))
     if not isinstance(agent_metadata, dict) or not isinstance(agent_metadata.get("interface"), dict):
         fail(f"{directory_name}: agents/openai.yaml lacks interface metadata")
     interface = agent_metadata["interface"]
-    for field in ("display_name", "short_description", "default_prompt"):
+    for field in ("display_name", "short_description"):
         if not isinstance(interface.get(field), str) or not interface[field].strip():
             fail(f"{directory_name}: interface.{field} must be a non-empty string")
+    if "default_prompt" in interface and (
+        not isinstance(interface["default_prompt"], str) or not interface["default_prompt"].strip()
+    ):
+        fail(f"{directory_name}: interface.default_prompt must be a non-empty string when supplied")
 
 
 def main() -> int:

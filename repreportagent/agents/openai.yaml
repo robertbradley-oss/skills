@@ -1,0 +1,4 @@
+interface:
+  display_name: "RepReportAgent"
+  short_description: "RepReport local review-log project agent"
+  default_prompt: "Use $repreportagent to work on the RepReport review-log parser or Excel export."

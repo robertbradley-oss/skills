@@ -1,0 +1,4 @@
+interface:
+  display_name: "ClaimGuard Agent"
+  short_description: "Route /claimguardagent tasks to the ClaimGuard project agent."
+  default_prompt: "/claimguardagent improve the next highest-value ClaimGuard MVP workflow issue"

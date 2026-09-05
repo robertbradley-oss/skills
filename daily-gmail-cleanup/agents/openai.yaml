@@ -1,0 +1,4 @@
+interface:
+  display_name: "Daily Gmail Cleanup"
+  short_description: "Safely triage and clean Gmail every day"
+  default_prompt: "Use $daily-gmail-cleanup to triage today's Gmail inbox using only the Action custom label and the established safety rules."

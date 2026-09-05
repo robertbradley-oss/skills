@@ -1,0 +1,4 @@
+interface:
+  display_name: "Emil Design Engineering"
+  short_description: "Polish web motion and interactions"
+  default_prompt: "Use $emil-design-eng to refine this component's motion and interaction feel, then verify the result in context."

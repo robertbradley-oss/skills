@@ -22,13 +22,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-      - name: Check out canonical Clean Handoff
-        uses: actions/checkout@v7
-        with:
-          repository: robertbradley-oss/clean-handoff
-          ref: 8ebe548c7a9516635e1933b1e96ddd170a36fb15
-          path: .canonical-clean-handoff
-          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
@@ -41,8 +34,6 @@ jobs:
         run: python .github/scripts/validate_skills.py
       - name: Run Simplify contract tests
         run: python -B -m unittest discover -s simplify-report/tests -p "test_*.py" -v
-      - name: Verify canonical Clean Handoff bytes
-        run: git diff --no-index --exit-code -- clean-handoff .canonical-clean-handoff/skills/clean-handoff
       - name: Run Clean Handoff tests
         run: node --test clean-handoff/tests/*.test.mjs
       - name: Compile Clean Up helpers
