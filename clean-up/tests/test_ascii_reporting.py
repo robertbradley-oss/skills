@@ -10,7 +10,7 @@ PACKAGE = ROOT / "clean-up"
 
 class AsciiReportingTests(unittest.TestCase):
     def test_runtime_and_skill_reporting_sources_are_ascii_safe(self) -> None:
-        paths = [PACKAGE / "SKILL.md", PACKAGE / "agents" / "openai.yaml"]
+        paths = [PACKAGE / "SKILL.md", PACKAGE / "OPERATIONS.md", PACKAGE / "agents" / "openai.yaml"]
         paths.extend(sorted((PACKAGE / "scripts").glob("*.py")))
 
         for path in paths:
@@ -22,7 +22,7 @@ class AsciiReportingTests(unittest.TestCase):
                     self.fail(f"Non-ASCII reporting source {path}: byte {exc.start}")
 
     def test_skill_requires_plain_ascii_reports(self) -> None:
-        text = (PACKAGE / "SKILL.md").read_text(encoding="ascii")
+        text = (PACKAGE / "OPERATIONS.md").read_text(encoding="ascii")
         self.assertIn("Use plain ASCII punctuation and symbols in every report", text)
 
 

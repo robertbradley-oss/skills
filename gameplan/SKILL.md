@@ -1,6 +1,6 @@
 ---
 name: gameplan
-description: Create, lock, recall, challenge, or update a durable workspace GAMEPLAN.md that records an agreed Outcome, Scope, and essential Guardrails. Use when the user invokes `$gameplan` or explicitly asks to create, lock, save, recall, revise, or challenge a game plan. Do not trigger for ordinary implementation, status, validation, or next-step requests merely because a GAMEPLAN.md exists.
+description: "Create, recall, or revise a durable GamePlan when requested."
 ---
 
 # GamePlan

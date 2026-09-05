@@ -1,34 +1,21 @@
 ---
 name: clean-handoff
-description: Create one new Codex task with the minimum useful context, or return that context as copyable text. Use when the user asks to hand off, continue in a new task, or make a portable handoff.
+description: "Prepare a concise handoff or create a new task when explicitly requested."
 ---
 
-# Clean Handoff
 
-Keep this fast. Use context already present in the conversation; do not inspect the repository, run tests, or invoke a helper script just to prepare a handoff.
+# Clean handoff
 
-## Build the handoff
+Use conversation context to prepare a short destination prompt: objective, completed and remaining work, important decisions, relevant files and validation state, and the next action. Omit secrets and raw tool output. Tell the destination to inspect live workspace state before edits.
 
-Write a short destination prompt containing only:
+Do not inspect the whole repository or run tests solely to prepare a handoff. Include a relevant GamePlan when the user is working from it; current user direction controls scope.
 
-- the objective;
-- completed and remaining work;
-- important decisions or constraints;
-- relevant files and validation state, when known;
-- the immediate next action.
+## Create a new task
 
-Do not include secrets, raw tool output, or speculative details. State that the destination must inspect live workspace state before changing anything. If a root `GAMEPLAN.md` exists, read it once immediately before handoff and treat it as the authority for plan status; do not search for it or stop when it is absent.
+Only create a task when the user explicitly requests one. Discover the saved project and select the unambiguous match. Follow the current `create_thread` contract for environment and starting-state selection, honoring an explicit user request for the saved checkout or an isolated worktree. Do not invent a branch or require a starting branch when the tool permits its default.
 
-## Direct handoff
-
-Use this route only when the user explicitly asks for a new Codex task.
-
-1. Call `list_projects` once. Select the saved project explicitly named by the user; otherwise select the project whose local path matches the current workspace. Ask one concise question only if there is no unique match.
-2. Continue in the selected saved project's existing workspace with `environment: { type: "local" }`. A new task is not an implicit request for a new Git worktree, and Git projects must not be switched to worktree mode merely because `isGitRepository` is true.
-3. Use `environment: { type: "worktree" }` only when the user explicitly requests an isolated worktree. Require the user to name an existing starting branch or explicitly request the selected project's current working-tree state; pass that choice as `startingState`. Never rely on an inferred `main`, `master`, or default branch.
-4. Call `create_thread` once with the short handoff as its prompt and do not wait for the new task to run.
-5. Report whether creation succeeded. Do not retry automatically or create local handoff files.
+Create one task with the concise prompt. Report the returned outcome and do not retry an uncertain creation blindly or wait for the destination to finish.
 
 ## Portable handoff
 
-Return the short handoff in one copyable Markdown block. Do not call task tools or write files.
+If the user requests copyable context, return one Markdown block. Do not create a task or write a local handoff file unless requested.
