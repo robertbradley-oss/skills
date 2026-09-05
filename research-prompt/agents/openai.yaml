@@ -1,7 +1,0 @@
-interface:
-  display_name: "Research Prompt"
-  short_description: "Turn research needs into crisp briefs"
-  default_prompt: "Use $research-prompt to draft a deep research brief for this question."
-
-policy:
-  allow_implicit_invocation: true

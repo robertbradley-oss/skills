@@ -1,4 +1,0 @@
-interface:
-  display_name: "Frontend UI Engineering"
-  short_description: "Build robust production web interfaces"
-  default_prompt: "Use $frontend-ui-engineering to implement this interface with responsive behavior, accessible states, and production-ready component structure."

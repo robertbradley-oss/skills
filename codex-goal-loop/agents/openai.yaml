@@ -1,7 +1,0 @@
-interface:
-  display_name: "Codex Goal Loop"
-  short_description: "Draft and manage verifiable Codex goals"
-  default_prompt: "Use $codex-goal-loop to draft a verifiable goal contract for this task."
-
-policy:
-  allow_implicit_invocation: true

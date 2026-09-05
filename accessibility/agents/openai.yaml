@@ -1,4 +1,0 @@
-interface:
-  display_name: "Accessibility"
-  short_description: "Audit and improve web accessibility"
-  default_prompt: "Use $accessibility to audit this interface against WCAG 2.2 and explain the highest-impact accessibility problems."

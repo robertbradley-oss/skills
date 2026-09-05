@@ -1,7 +1,0 @@
-interface:
-  display_name: "Read All ADRs"
-  short_description: "Load project decision history first"
-  default_prompt: "Use $read-all-adrs before reviewing this architecture decision."
-
-policy:
-  allow_implicit_invocation: true

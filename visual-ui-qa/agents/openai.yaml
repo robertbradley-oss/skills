@@ -1,4 +1,0 @@
-interface:
-  display_name: "Visual UI QA"
-  short_description: "Inspect and verify responsive interface quality"
-  default_prompt: "Use $visual-ui-qa to inspect this interface across breakpoints and states, fix authorized issues, and verify the result."

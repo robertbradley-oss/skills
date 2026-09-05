@@ -1,4 +1,0 @@
-interface:
-  display_name: "iSpring Handoff"
-  short_description: "Continue weekly iSpring chats with KPI context"
-  default_prompt: "Use $ispring-handoff to carry over this week's KPI tracking to a new chat in this iSpring project and continue tracking automatically."

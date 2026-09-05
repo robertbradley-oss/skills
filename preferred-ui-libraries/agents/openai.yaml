@@ -1,4 +1,0 @@
-interface:
-  display_name: "Preferred UI Libraries"
-  short_description: "Preferred frontend component library guidance"
-  default_prompt: "Use $preferred-ui-libraries to select suitable libraries for this frontend implementation."

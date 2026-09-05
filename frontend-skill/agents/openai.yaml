@@ -1,4 +1,0 @@
-interface:
-  display_name: "Frontend Skill"
-  short_description: "Set visual direction for web experiences"
-  default_prompt: "Use $frontend-skill to establish the visual thesis, content hierarchy, and art direction for this web experience."

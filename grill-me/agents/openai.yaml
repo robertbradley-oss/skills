@@ -1,7 +1,0 @@
-interface:
-  display_name: "Grill Me"
-  short_description: "Stress-test a plan one question at a time"
-  default_prompt: "Use $grill-me to stress-test this plan before I commit."
-
-policy:
-  allow_implicit_invocation: true
