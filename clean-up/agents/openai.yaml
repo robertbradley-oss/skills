@@ -1,4 +1,4 @@
 interface:
   display_name: "Clean Up"
-  short_description: "Safely clean and organize workspaces"
-  default_prompt: "Use $clean-up to audit this workspace and automatically decide what should be removed, moved, kept, or preserved across files, organization, Git hygiene, and tracked code. Do not ask me to make technical retention decisions; ask only for exact mutation approval."
+  short_description: "Finish tasks and safely clean workspaces"
+  default_prompt: "Use $clean-up to finish the current implementation task with scoped simplification, organization, cleanup, and validation, completing authorized edits and requesting only any exact removal approval still needed."
