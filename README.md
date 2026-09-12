@@ -20,8 +20,8 @@ the Codex skill packages below remain independently installable.
 
 | Skill | Purpose | Package |
 | --- | --- | --- |
-| Clean Handoff | Create trustworthy project handoffs for fresh Codex tasks. | [`clean-handoff/`](clean-handoff/) |
-| GamePlan | Preserve strategic continuity and control approved execution slices. | [`gameplan/`](gameplan/) |
+| Clean Handoff | Summarize project context for a new Codex task. | [`clean-handoff/`](clean-handoff/) |
+| GamePlan | Keep a project plan current and track which work is approved. | [`gameplan/`](gameplan/) |
 | Clean Up | Finish implementation tasks with scoped simplification, organization, cleanup, and validation, or audit workspace cleanup candidates. | [`clean-up/`](clean-up/) |
 | Simplify | Explain technical reports in everyday language without changing their conclusions. | [`simplify-report/`](simplify-report/) |
 | Knowledge Interview | Turn practical expertise into usable guides, procedures, or onboarding material through a focused interview. | [`knowledge-interview/`](knowledge-interview/) |
