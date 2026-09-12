@@ -1,6 +1,6 @@
 ---
 name: clean-up
-description: "Finish an implementation task through scoped code simplification, file organization, cleanup, and validation, or audit a workspace and apply specifically authorized removals."
+description: "Finish and validate scoped implementation work, or inspect workspace cleanup candidates and apply authorized removals."
 ---
 
 
