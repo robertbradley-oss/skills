@@ -39,6 +39,10 @@ jobs:
         run: python -m pip install --disable-pip-version-check PyYAML==6.0.3
       - name: Validate skill packages
         run: python .github/scripts/validate_skills.py
+      - name: Validate agent profiles
+        run: python .github/agent-support/audit_definitions.py .github/agents
+      - name: Run definition auditor tests
+        run: python -B -m unittest discover -s .github/agent-support/tests -p "test_*.py" -v
       - name: Run Simplify contract tests
         run: python -B -m unittest discover -s simplify-report/tests -p "test_*.py" -v
       - name: Verify canonical Clean Handoff bytes

@@ -5,6 +5,17 @@ is independently installable, contains its own tests when applicable, and has
 no plugin or marketplace packaging. Repository-wide automation lives under
 `.github/` so the root remains focused on installable skill packages.
 
+## GitHub Copilot agents
+
+Four reusable profiles are available in [`.github/agents/`](.github/agents/):
+**Bug Reproducer**, **Docs Verifier**, **Skill Auditor**, and **Release Evidence**.
+They produce reproducible bug evidence, verified documentation corrections,
+definition audits, and release reports tied to actual checks.
+
+See [setup, examples, and validation](.github/agent-support/README.md) to use them
+here or copy them into another repository. These are Copilot agent profiles;
+the Codex skill packages below remain independently installable.
+
 ## Active skills
 
 | Skill | Purpose | Package |
