@@ -1,0 +1,4 @@
+interface:
+  display_name: "Motion Resilience"
+  short_description: "Test motion under interruption and repeated input"
+  default_prompt: "Use $motion-resilience. Test this animated interaction for interruption and lifecycle defects."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Research Brief"
+  short_description: "Create clear assignments for evidence-based research"
+  default_prompt: "Use $research-brief. Turn this research need into a self-contained assignment."

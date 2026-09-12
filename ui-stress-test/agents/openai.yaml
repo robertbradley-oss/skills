@@ -1,0 +1,4 @@
+interface:
+  display_name: "UI Stress Test"
+  short_description: "Expose layout failures with realistic stress cases"
+  default_prompt: "Use $ui-stress-test. Stress-test this interface with relevant content and viewport extremes."

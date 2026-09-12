@@ -1,0 +1,9 @@
+{
+  "cases": [
+    {"id": "reverse", "sequence": ["open", "close before entry completes", "wait for settling"], "observe": ["Final state closed", "No invisible input blocker", "Expected focus restored"]},
+    {"id": "reopen", "sequence": ["open", "close", "reopen before exit completes"], "observe": ["Current intent respected", "Stale exit callback cannot remove reopened UI"]},
+    {"id": "rapid-toggle", "sequence": ["toggle repeatedly during transitions", "settle"], "observe": ["Final state follows declared input policy", "No accumulating listeners or overlays"]},
+    {"id": "navigate", "sequence": ["start transition", "navigate or unmount", "settle"], "observe": ["Cleanup complete", "No stale focus jump or callback mutation"]},
+    {"id": "reduced-motion", "sequence": ["enable reduced-motion preference", "open", "close", "reopen"], "observe": ["Usable feedback", "Correct cleanup without relying on absent transition events"]}
+  ]
+}

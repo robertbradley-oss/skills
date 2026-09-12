@@ -1,0 +1,14 @@
+{
+  "purpose": "Map selected values into isolated UI fixtures; do not apply every case indiscriminately.",
+  "cases": [
+    {"id": "long-label", "field": "label", "value": "Review and confirm all selected notification preferences", "probe": "Wrapping and reachable neighboring actions"},
+    {"id": "unbroken-id", "field": "identifier", "value": "ORDER_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ", "probe": "Intrinsic minimum width and access to full identifier"},
+    {"id": "multiline-error", "field": "error", "value": "We could not save your changes. Check the highlighted fields and try again. Your entries are still available below.", "probe": "Error growth without hiding fields or actions"},
+    {"id": "pseudo-label", "field": "label", "value": "[Ŕëṽïëŵ åñđ çøñƒïŕḿ ñøţïƒïçåţïøñ þŕëƒëŕëñçëš — expanded test label]", "probe": "Layout expansion only; not a translation"},
+    {"id": "mixed-direction", "field": "text", "value": "طلب ORDER-2048 / support@example.test", "probe": "Mixed-direction text when the product supports this content"},
+    {"id": "large-value", "field": "amount", "value": 9876543210.98, "probe": "Use the application's formatter and valid domain limits"},
+    {"id": "zero", "field": "count", "value": 0, "probe": "Zero displayed distinctly from missing"},
+    {"id": "missing", "field": "optionalText", "value": null, "probe": "Supported absent-content state"},
+    {"id": "failed-image", "field": "imageUrl", "value": "/__ui_fixture_missing_image__.png", "probe": "Configure an isolated 404 response; do not depend on a real external URL"}
+  ]
+}

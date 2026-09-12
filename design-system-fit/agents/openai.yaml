@@ -1,0 +1,4 @@
+interface:
+  display_name: "Design System Fit"
+  short_description: "Make new UI fit the existing product conventions"
+  default_prompt: "Use $design-system-fit. Implement this feature using the existing design system."

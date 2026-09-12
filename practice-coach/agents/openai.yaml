@@ -1,0 +1,4 @@
+interface:
+  display_name: "Practice Coach"
+  short_description: "Build understanding through adaptive practice"
+  default_prompt: "Use $practice-coach. Help me practice this topic with exercises and feedback."

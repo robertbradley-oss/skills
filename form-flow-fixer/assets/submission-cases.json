@@ -1,0 +1,9 @@
+{
+  "cases": [
+    {"id": "invalid-fields", "setup": "Two invalid fields and one valid field", "actions": ["submit", "correct first error", "correct second error", "submit"], "observe": ["Errors identify fields", "Valid input survives", "Successful correction remains possible"]},
+    {"id": "slow-repeat", "setup": "Hold the isolated submit response pending", "actions": ["activate submit twice quickly", "release response"], "observe": ["Request count matches intended contract", "Pending feedback is visible", "Final state matches response"]},
+    {"id": "server-rejection", "setup": "Return a representative documented validation rejection", "actions": ["submit", "correct rejected value", "retry"], "observe": ["Useful server error", "Preserved valid values", "Recovery completes"]},
+    {"id": "unknown-outcome", "setup": "Simulate connection loss after dispatch; commit status unknown", "actions": ["submit", "inspect offered recovery"], "observe": ["No false failure/success certainty", "No unsafe blind retry", "Supported outcome lookup or clear guidance"]},
+    {"id": "keyboard", "setup": "Default form", "actions": ["complete using keyboard", "trigger error", "correct and submit"], "observe": ["Logical focus order", "Visible focus", "Reachable correction and success"]}
+  ]
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "UI State Completeness"
+  short_description: "Find missing states and broken UI transitions"
+  default_prompt: "Use $ui-state-completeness. Check this component for missing states and transition failures."

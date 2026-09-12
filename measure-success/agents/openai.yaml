@@ -1,0 +1,4 @@
+interface:
+  display_name: "Measure Success"
+  short_description: "Define useful measures and justified targets"
+  default_prompt: "Use $measure-success. Create a practical measurement plan for this initiative."

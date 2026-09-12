@@ -1,0 +1,9 @@
+{
+  "cases": [
+    {"id": "out-of-order", "sequence": ["request A", "request B", "resolve B", "resolve A"], "question": "Does final content follow current intent under the declared request policy?"},
+    {"id": "close-pending", "sequence": ["open", "start work", "close", "resolve work", "reopen"], "question": "Are lifecycle state and remote outcome represented correctly?"},
+    {"id": "refresh-failure", "sequence": ["show existing data", "refresh", "reject refresh", "retry"], "question": "Is stale data distinguishable and recovery reachable?"},
+    {"id": "partial-failure", "sequence": ["start batch", "some items succeed", "some items fail", "retry supported failures"], "question": "Are outcomes visible without repeating successful effects?"},
+    {"id": "eligibility-change", "sequence": ["show enabled action", "eligibility changes", "attempt action"], "question": "Does UI feedback agree with the actual operation contract?"}
+  ]
+}

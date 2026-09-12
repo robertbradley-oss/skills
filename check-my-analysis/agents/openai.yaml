@@ -1,0 +1,4 @@
+interface:
+  display_name: "Check My Analysis"
+  short_description: "Check calculations and the conclusions they support"
+  default_prompt: "Use $check-my-analysis. Review this analysis for consequential errors and unsupported claims."

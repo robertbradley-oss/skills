@@ -1,0 +1,4 @@
+interface:
+  display_name: "Form Flow Fixer"
+  short_description: "Fix form submission and recovery behavior"
+  default_prompt: "Use $form-flow-fixer. Find and fix failures across this form submission flow."

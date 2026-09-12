@@ -1,0 +1,4 @@
+interface:
+  display_name: "Feedback to Findings"
+  short_description: "Turn feedback into traceable findings"
+  default_prompt: "Use $feedback-to-findings. Synthesize this feedback into supported themes and gaps."

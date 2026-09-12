@@ -18,6 +18,16 @@ no plugin or marketplace packaging. Repository-wide automation lives under
 | Meeting Brief | Prepare focused meeting briefs and capture supported decisions and actions from meeting notes. | [`meeting-brief/`](meeting-brief/) |
 | Decision Coach | Clarify priorities, compare alternatives, and identify evidence that would change a choice. | [`decision-coach/`](decision-coach/) |
 | Reconcile Reports | Explain conflicting report totals by aligning definitions and quantifying adjustments and unresolved gaps. | [`reconcile-reports/`](reconcile-reports/) |
+| Practice Coach | Build understanding through adaptive exercises, feedback, and transfer checks. | [`practice-coach/`](practice-coach/) |
+| Feedback to Findings | Synthesize existing feedback into traceable themes while preserving contradictions and sampling limits. | [`feedback-to-findings/`](feedback-to-findings/) |
+| Check My Analysis | Review calculations, comparisons, and the evidence supporting analytical conclusions. | [`check-my-analysis/`](check-my-analysis/) |
+| Measure Success | Define practical measures, baselines, justified targets, and guardrails for an initiative. | [`measure-success/`](measure-success/) |
+| Research Brief | Create a self-contained research assignment with evidence standards and completion criteria. | [`research-brief/`](research-brief/) |
+| UI Stress Test | Reproduce layout failures using content extremes, narrow containers, and relevant environment variations. | [`ui-stress-test/`](ui-stress-test/) |
+| Form Flow Fixer | Diagnose and repair validation, submission, input preservation, and recovery behavior. | [`form-flow-fixer/`](form-flow-fixer/) |
+| UI State Completeness | Find missing states and transition failures, including relevant async and lifecycle cases. | [`ui-state-completeness/`](ui-state-completeness/) |
+| Design System Fit | Implement UI using evidence from the product's existing components and visual conventions. | [`design-system-fit/`](design-system-fit/) |
+| Motion Resilience | Test animated interactions under interruption, reversal, repeated input, and reduced motion. | [`motion-resilience/`](motion-resilience/) |
 
 Install any package with Codex's `$skill-installer` using this repository and
 the package path from the table above. For example:
@@ -48,6 +58,46 @@ proof. Meeting Brief distinguishes suggestions from confirmed commitments.
 Decision Coach elicits priorities before suggesting answers when those
 priorities affect the choice. Reconcile Reports preserves source data and
 shows how much of the difference is explained.
+
+## Learning, evidence, and measurement
+
+These skills work from supplied context and use relevant tools or sources when
+needed. They do not require a particular analytics platform or a learning workspace.
+
+| Skill | Example request |
+| --- | --- |
+| Practice Coach | `Use $practice-coach to help me practice percentages and adapt the exercises to my answers.` |
+| Feedback to Findings | `Use $feedback-to-findings to identify supported themes and conflicting experiences in these customer reviews.` |
+| Check My Analysis | `Use $check-my-analysis to check whether this report's calculations and conclusions hold up.` |
+| Measure Success | `Use $measure-success to define how we should evaluate this onboarding initiative.` |
+| Research Brief | `Use $research-brief to write an assignment for comparing these options using consistent evidence.` |
+
+Practice Coach checks demonstrated understanding rather than treating exposure
+as learning. Feedback to Findings distinguishes repeated comments from independent
+respondents. Check My Analysis assesses whether conclusions follow from evidence,
+even when reported totals agree. Measure Success keeps targets grounded in a
+baseline or an explicit requirement. Research Brief defines the investigation
+without automatically starting it.
+
+## UI implementation and robustness
+
+These skills pair focused workflows with reusable content or event-sequence
+fixtures, or a design-system comparison guide. Map the fixtures to an isolated
+test environment and the project's existing browser tooling. Fixtures are test
+inputs, not proof that the application passed.
+
+| Skill | Example request |
+| --- | --- |
+| UI Stress Test | `Use $ui-stress-test to find and fix clipping in this dialog with long content and narrow widths.` |
+| Form Flow Fixer | `Use $form-flow-fixer to fix this form's error handling and verify retry and keyboard completion.` |
+| UI State Completeness | `Use $ui-state-completeness to check this search UI when responses arrive out of order.` |
+| Design System Fit | `Use $design-system-fit to add this settings screen using our existing UI conventions.` |
+| Motion Resilience | `Use $motion-resilience to test this drawer when it is rapidly opened, closed, and reopened.` |
+
+Reviews report findings; requested fixes include scoped implementation and
+reverification. Static inspection is kept distinct from browser evidence,
+simulated request tests from real integration tests, and untested behavior
+from passed checks.
 
 ## Clean Up
 
@@ -128,7 +178,7 @@ by the exact action and evidence that matter.
 ## Repository validation
 
 The shared validation workflow under [`.github/workflows/`](.github/workflows/)
-checks all nine skill packages on Windows, macOS, and Linux, verifies Clean
+checks all nineteen skill packages on Windows, macOS, and Linux, verifies Clean
 Handoff against its locked canonical source, runs its syntax and test gates,
 compiles the Clean Up helpers, and runs the package-local Clean Up and
 Simplify test suites.
