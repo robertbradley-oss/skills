@@ -1,0 +1,4 @@
+interface:
+  display_name: "Knowledge Interview"
+  short_description: "Turn practical expertise into usable guides"
+  default_prompt: "Use $knowledge-interview. Interview me about a task and build a guide someone else can follow."

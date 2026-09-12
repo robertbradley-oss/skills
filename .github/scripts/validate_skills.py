@@ -11,7 +11,17 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SKILLS = ("clean-handoff", "clean-up", "gameplan", "simplify-report")
+SKILLS = (
+    "clean-handoff",
+    "clean-up",
+    "gameplan",
+    "simplify-report",
+    "knowledge-interview",
+    "proposal-reviewer",
+    "meeting-brief",
+    "decision-coach",
+    "reconcile-reports",
+)
 NAME_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 FRONTMATTER_PATTERN = re.compile(r"^---\r?\n(.*?)\r?\n---(?:\r?\n|$)", re.DOTALL)
 

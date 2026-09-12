@@ -1,0 +1,4 @@
+interface:
+  display_name: "Decision Coach"
+  short_description: "Work through choices and consequential tradeoffs"
+  default_prompt: "Use $decision-coach. Help me compare my options and reach a supported decision."

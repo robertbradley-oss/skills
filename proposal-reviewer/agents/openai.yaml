@@ -1,0 +1,4 @@
+interface:
+  display_name: "Proposal Reviewer"
+  short_description: "Test proposal claims against available evidence"
+  default_prompt: "Use $proposal-reviewer. Review this proposal and identify the evidence needed to decide."

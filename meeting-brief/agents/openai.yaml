@@ -1,0 +1,4 @@
+interface:
+  display_name: "Meeting Brief"
+  short_description: "Prepare focused meetings and faithful debriefs"
+  default_prompt: "Use $meeting-brief. Prepare a focused meeting brief from the context I provide."

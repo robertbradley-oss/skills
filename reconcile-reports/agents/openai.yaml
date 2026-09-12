@@ -1,0 +1,4 @@
+interface:
+  display_name: "Reconcile Reports"
+  short_description: "Explain and quantify conflicting report totals"
+  default_prompt: "Use $reconcile-reports. Explain why these reports disagree and quantify the remaining gap."

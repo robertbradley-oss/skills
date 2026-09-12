@@ -13,11 +13,41 @@ no plugin or marketplace packaging. Repository-wide automation lives under
 | GamePlan | Preserve strategic continuity and control approved execution slices. | [`gameplan/`](gameplan/) |
 | Clean Up | Finish implementation tasks with scoped simplification, organization, cleanup, and validation, or audit workspace cleanup candidates. | [`clean-up/`](clean-up/) |
 | Simplify | Explain technical reports in everyday language without changing their conclusions. | [`simplify-report/`](simplify-report/) |
+| Knowledge Interview | Turn practical expertise into usable guides, procedures, or onboarding material through a focused interview. | [`knowledge-interview/`](knowledge-interview/) |
+| Proposal Reviewer | Test consequential proposal claims against evidence and identify questions that could change the decision. | [`proposal-reviewer/`](proposal-reviewer/) |
+| Meeting Brief | Prepare focused meeting briefs and capture supported decisions and actions from meeting notes. | [`meeting-brief/`](meeting-brief/) |
+| Decision Coach | Clarify priorities, compare alternatives, and identify evidence that would change a choice. | [`decision-coach/`](decision-coach/) |
+| Reconcile Reports | Explain conflicting report totals by aligning definitions and quantifying adjustments and unresolved gaps. | [`reconcile-reports/`](reconcile-reports/) |
 
 Install any package with Codex's `$skill-installer` using this repository and
-the package path `clean-handoff`, `clean-up`, `gameplan`, or
-`simplify-report`. Start a new Codex task after installation so the skill
-catalog refreshes.
+the package path from the table above. For example:
+
+```text
+Use $skill-installer to install knowledge-interview from
+https://github.com/robertbradley-oss/skills.
+```
+
+Start a new Codex task after installation so the skill catalog refreshes.
+
+## Interviews, reviews, and decisions
+
+The five skills below work from conversation, supplied files, or relevant
+available sources without requiring a particular app or connector.
+
+| Skill | Example request |
+| --- | --- |
+| Knowledge Interview | `Use $knowledge-interview to interview me about this process and write a guide a new teammate can follow.` |
+| Proposal Reviewer | `Use $proposal-reviewer to assess this vendor proposal and identify the evidence we need before deciding.` |
+| Meeting Brief | `Use $meeting-brief to prepare for this meeting using these notes and the decisions we need to make.` |
+| Decision Coach | `Use $decision-coach to help me compare these options against my priorities.` |
+| Reconcile Reports | `Use $reconcile-reports to explain why these spreadsheets show different totals and quantify any remaining gap.` |
+
+Knowledge Interview elicits examples and exceptions instead of assuming the
+reader has the expert's background. Proposal Reviewer separates claims from
+proof. Meeting Brief distinguishes suggestions from confirmed commitments.
+Decision Coach elicits priorities before suggesting answers when those
+priorities affect the choice. Reconcile Reports preserves source data and
+shows how much of the difference is explained.
 
 ## Clean Up
 
@@ -98,7 +128,7 @@ by the exact action and evidence that matter.
 ## Repository validation
 
 The shared validation workflow under [`.github/workflows/`](.github/workflows/)
-checks all four skill packages on Windows, macOS, and Linux, verifies Clean
+checks all nine skill packages on Windows, macOS, and Linux, verifies Clean
 Handoff against its locked canonical source, runs its syntax and test gates,
 compiles the Clean Up helpers, and runs the package-local Clean Up and
 Simplify test suites.
