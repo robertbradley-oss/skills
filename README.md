@@ -1,20 +1,40 @@
-# RobertOS Skills
+# RobertOS Skills and Agents
 
-Standalone Codex skills maintained by RobertOS. Each top-level skill directory
-is independently installable, contains its own tests when applicable, and has
-no plugin or marketplace packaging. Repository-wide automation lives under
-`.github/` so the root remains focused on installable skill packages.
+Reusable Codex skills and GitHub Copilot agents maintained by RobertOS.
+Each top-level skill directory is independently installable and contains its
+own tests when applicable. Copilot agent profiles and their supporting tools
+live under `.github/`, alongside repository-wide automation.
 
 ## GitHub Copilot agents
 
-Four reusable profiles are available in [`.github/agents/`](.github/agents/):
-**Bug Reproducer**, **Docs Verifier**, **Skill Auditor**, and **Release Evidence**.
-They produce reproducible bug evidence, verified documentation corrections,
-definition audits, and release reports tied to actual checks.
+| Agent | Job | Example request |
+| --- | --- | --- |
+| [Bug Reproducer](.github/agents/bug-reproducer.agent.md) | Demonstrate a reported bug with an executed regression test, or explain why reproduction is blocked. | `Reproduce issue 123 with a regression test. Do not fix production code.` |
+| [Docs Verifier](.github/agents/docs-verifier.agent.md) | Check documented setup and examples in a fresh environment, then correct supported documentation errors. | `Verify the README quick start in a fresh environment and fix documentation errors.` |
+| [Skill Auditor](.github/agents/skill-auditor.agent.md) | Check definitions for structural defects, broken local references, and conflicting instructions. | `Audit these skill definitions. Separate structural errors from instruction concerns.` |
+| [Release Evidence](.github/agents/release-evidence.agent.md) | Connect release changes to exact commits, CI, deployment, and live verification evidence. | `Report what shipped between these two SHAs to staging and identify verification gaps.` |
+
+### Use an agent
+
+1. Open [GitHub Agents](https://github.com/copilot/agents) and select
+   `robertbradley-oss/skills` as the repository.
+2. Select a custom agent and submit a task, such as one of the examples above.
+   Availability depends on your Copilot account and repository configuration.
+3. To use an agent on your own code, copy its `.agent.md` file into your target
+   repository's `.github/agents/` directory and commit it to the default branch.
+   Profiles here do not automatically apply to other repositories.
+
+In Copilot CLI, use `/agent` to choose an available profile. Skill Auditor's
+optional Python checker can be copied with the supporting directory; see the
+setup guide for its dependency and command.
 
 See [setup, examples, and validation](.github/agent-support/README.md) to use them
 here or copy them into another repository. These are Copilot agent profiles;
 the Codex skill packages below remain independently installable.
+
+Structural validation and helper tests run in CI. Hosted Copilot behavior
+evaluations have not been run; [evaluation cases](.github/agent-support/EVALUATION.md)
+define the evidence needed to assess each agent.
 
 ## Active skills
 
@@ -192,4 +212,6 @@ The shared validation workflow under [`.github/workflows/`](.github/workflows/)
 checks all nineteen skill packages on Windows, macOS, and Linux, verifies Clean
 Handoff against its locked canonical source, runs its syntax and test gates,
 compiles the Clean Up helpers, and runs the package-local Clean Up and
-Simplify test suites.
+Simplify test suites. It also validates all four Copilot agent profiles and runs
+the definition auditor's tests. These automated checks do not establish agent
+reasoning quality or successful execution in a hosted Copilot session.
