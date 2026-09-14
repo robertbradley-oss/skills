@@ -1,6 +1,6 @@
 interface:
   display_name: "Clean Handoff"
-  short_description: "Hand off work now or prepare it for later"
-  default_prompt: "Use $clean-handoff to prepare this work for Codex or ChatGPT Work, preserving the context, source links, and whether to start now or wait."
+  short_description: "Preserve context for reliable task handoffs"
+  default_prompt: "Use $clean-handoff to preserve the evidence, decisions, source links, and next action needed to continue this work, including whether to start now or wait."
 policy:
   allow_implicit_invocation: true

@@ -9,7 +9,7 @@ no plugin or marketplace packaging. Repository-wide automation lives under
 
 | Skill | Purpose | Package |
 | --- | --- | --- |
-| Clean Handoff | Prepare and resume context handoffs; use available tools for task delivery and supported migration. | [`clean-handoff/`](clean-handoff/) |
+| Clean Handoff | Preserve evidence, decisions, and next actions for reliable context transfer between tasks. | [`clean-handoff/`](clean-handoff/) |
 | GamePlan | Preserve strategic continuity and control approved execution slices. | [`gameplan/`](gameplan/) |
 | Clean Up | Automatically resolve file, artifact, release, duplicate, organization, branch, worktree, and tracked-code evidence into safe keep, move, cleanup, or preservation decisions. | [`clean-up/`](clean-up/) |
 | Simplify | Explain technical reports in everyday language without changing their conclusions. | [`simplify-report/`](simplify-report/) |
@@ -21,79 +21,53 @@ catalog refreshes.
 
 ## Clean Handoff
 
-Clean Handoff prepares enough context for another task to continue the work.
-It is an instruction-based skill that uses the tools available in its current
-environment; it does not provide its own transfer service or device connection.
+Clean Handoff preserves the context another task needs to continue accurately.
+It prepares a copyable brief, uses available task tools for requested delivery,
+and helps resume incoming work without repeating completed steps.
 
-| Capability | Behavior and requirements |
-| --- | --- |
-| Portable brief | Preserves the goal, completed and remaining work, validation evidence, materials, and next action in copyable Markdown. |
-| Evidence and decisions | Keeps relevant source links and selection criteria; separates user decisions from assistant recommendations and unresolved ideas. |
-| Context import | Reads a named, accessible source conversation when task-reading tools are available. |
-| Task delivery | Sends context to an existing task, or creates a new Codex or ChatGPT Work cloud task when explicitly requested and supported by the tools. |
-| Native migration | Prefers a supported move of the existing Codex task and Git state when migration is requested; accounts separately for required attachments and other files. |
-| Deferred work | Carries an instruction to acknowledge receipt and wait until the user says to start. |
-| Incoming handoff | Reconciles supplied context with current instructions and accessible materials, then resumes the next authorized action. |
-| Transfer status | Distinguishes prepared, pending, delivered, acknowledged, completed migration, and failed outcomes; identifies missing materials or access. |
+It carries:
 
-For requests to move the existing task and files, it checks native migration
-support first. Phone-to-PC and PC-to-phone routing distinguishes control of the
-same host from moving execution to a different host or cloud. It accounts for
-required Git changes and attachments, checks migration status, and reports
-missing materials. Feature flagged capabilities are used only when exposed;
-a context summary is never reported as a completed task migration.
+- the goal, acceptance criteria, completed work, and remaining work;
+- explicit user decisions, separately from assistant suggestions and unresolved ideas;
+- decision-relevant source links, evidence, and validation results;
+- required files, repository state, missing materials, and access limitations;
+- the next authorized action and whether to start now or wait.
 
-Research handoffs preserve the source brief's evidence standard, including
+Research handoffs retain the source brief's evidence standard. This includes
 independent pain evidence, competitor checks, payment evidence, and minimal
-customer effort when those criteria apply. Compatibility reports cover
-only the operation and environment verified by the tools; a readable ChatGPT
-conversation alone does not establish Work mode or cloud execution.
+customer effort when those criteria apply. Copying a source link does not imply
+that its claims were reverified.
 
 Example requests:
 
-- "Use $clean-handoff to create a ChatGPT Work cloud task for this research."
+- "Use $clean-handoff to prepare a copyable brief for this work."
+- "Bring the context from my task named Research review into this task."
 - "Use $clean-handoff to continue this in my existing task named Release review."
-- "Use $clean-handoff to prepare copyable context for Codex cloud."
+- "Create a new Codex task with this context."
+- "Create a ChatGPT Work cloud task with this research brief."
+- "Prepare this handoff for later; wait until I say start."
 - "Use $clean-handoff to resume from this handoff in the current workspace."
-- "Move my task named Checkout fix to my home PC, including its files."
-- "Continue the same PC-hosted task from my phone."
-- "Send this to Codex so it's ready to be worked on when I get home."
 
-The last request prepares a brief for later execution. It carries an explicit
-instruction to acknowledge receipt and wait for the user to say "start". Current
-task tools can trigger a receiving run, so this is an acknowledgment-only
-instruction, not a scheduler-enforced pause. A request for no run or setup at all
-keeps the brief in the source conversation when no draft facility is available.
+Reading another conversation, delivering to an existing task, and creating a new
+one depend on tools and access in the current environment. New tasks require an
+explicit request. If delivery is unavailable, the skill returns a portable brief
+and clearly reports that it has not been delivered.
 
-On a phone, [Remote](https://learn.chatgpt.com/docs/remote-connections) can use
-the connected desktop's skills and Codex tasks. The host must remain available.
-Ordinary mobile ChatGPT needs the skill available to that account and a supported
-delivery tool. If delivery is unavailable, Clean Handoff prepares the brief in
-the source conversation and gives a pickup instruction for Codex at home;
-it does not claim the work was sent or automatically queued.
+Deferred handoffs carry an instruction to acknowledge receipt and wait for the
+user to start. This is a recipient instruction, not an enforced scheduling
+feature; delivery can trigger an acknowledgment run. If no run or setup is
+allowed, the brief stays in the source unless a supported draft facility exists.
 
-Direct creation or delivery depends on the tools available in that environment.
-The Codex app's current `create_thread` tool supports ChatGPT Work cloud creation;
-its currently exposed `handoff_thread` tool does not migrate tasks to cloud.
-The skill rechecks the active contract for newly available routes. Unsupported
-routes get one self-contained, copyable prompt. Local skill installation does not establish
-cloud installation or transfer access to files, credentials, or conversation history.
-
-### Availability and verification
-
-This repository distributes the standalone skill. A local experimental plugin
-package was prepared during development, but is not included here, published,
-or installed in mobile ChatGPT. Packaging the instructions as a plugin does not
-add Codex task tools, a PC connection, automatic offline delivery, or cloud
-migration support. The portable brief can be used without installing the skill
-at the destination. See OpenAI's [skill availability](https://learn.chatgpt.com/docs/build-skills)
-and [plugin packaging guidance](https://learn.chatgpt.com/docs/build-plugins)
-for supported distribution routes.
+Native task migration is conditional on platform support and is distinct from
+context delivery. Required files and local changes are accounted for separately;
+a summary does not establish that they transferred. Cross-device delivery remains
+unverified and is not a promised capability of this skill.
 
 Context retrieval from an accessible ChatGPT conversation into a Codex task was
-demonstrated during development. That does not verify Work cloud execution,
-reverse-direction delivery, file migration, or a phone-to-PC plugin. Package and
-metadata checks validate structure; live cross-device transfer remains unverified.
+demonstrated during development. That result does not establish Work cloud mode,
+file migration, or successful delivery in the opposite direction. The skill
+reports prepared, pending, delivered, and acknowledged states separately.
+Package and metadata checks validate structure, not end-to-end transfer behavior.
 
 ## Clean Up
 

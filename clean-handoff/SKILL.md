@@ -1,17 +1,11 @@
 ---
 name: clean-handoff
-description: "Move or resume work across devices, Codex, and ChatGPT Work using supported task and file transfers, or prepare a portable handoff for later."
+description: "Prepare, deliver, or resume a concise context handoff with source links, decisions, evidence, and next actions, using available task tools or copyable text."
 ---
 
 # Clean handoff
 
-Make the destination able to continue the user's work with the minimum useful context. Prefer a supported native task move when the user requests migration, including files; use a context handoff for a new continuation or when migration is unavailable. Report which operation occurred and what materials actually moved. Neither route implies that credentials, installed skills, or running processes transfer.
-
-## Identify what should move
-
-Resolve the source task, its execution host, the intended destination host/product/project, required materials, and whether work should start now or wait. The phone is often the control device; identify where the task and files actually live. "Phone to PC" can mean continuing the same PC-hosted task through Remote, transferring a cloud task to the PC, or sending a mobile conversation and its attachments into Codex. Do not treat those as equivalent. Apply the same checks for PC-to-phone and return trips; success in one direction does not prove the reverse.
-
-For "move this task, files included", check native migration capabilities before creating or sending a summary. If the requested move is unsupported, prepare useful context and identify the missing transfer route; do not silently substitute a new task or report migration complete. A screenshot, announcement, or feature flagged rollout is a reason to check current capabilities, not proof that the feature is enabled on this account. Do not hard-code a permanent product limitation when a later tool contract supports the route.
+Preserve the context needed to continue work accurately: the goal, evidence, user decisions, materials, and next action. Prepare a portable brief, deliver it through available task tools when requested, or resume from an incoming handoff. Context delivery does not imply that files, credentials, or execution environments move with it.
 
 ## Prepare the context
 
@@ -46,29 +40,15 @@ Keep the user's description of an environment separate from tool-confirmed metad
 - **Existing destination task or chat:** when the user asks to continue there, resolve the exact destination with `list_threads` or a supplied ID, clarifying an ambiguous match before sending. Use `send_message_to_thread` with the prompt. Read recent destination context only if needed to avoid contradicting newer work. Reuse the requested destination rather than creating a duplicate.
 - **Codex cloud or another requested surface:** use a direct route only if an available tool explicitly supports that destination. Do not substitute ChatGPT Work for Codex cloud, a remote host for cloud, or a local task for an unsupported cloud request. Explain the limitation briefly and provide the portable prompt plus any missing materials.
 
-## Move an existing task and its files
+## Conditional task migration
 
-Use the native migration tool when its current contract supports the requested source and destination. With the currently exposed `handoff_thread`, resolve another Codex task and the matching saved Git project on the destination host, including the same repository subdirectory when applicable. Obtain host IDs from current tools; `local` is relative to the tool's host, not automatically the user's home PC. Never omit a destination host to approximate an unsupported destination: omission currently toggles checkout/worktree on the same host.
+If the user explicitly requests moving an existing task and files, check the native tool's current contract and exact destination before acting. The currently exposed `handoff_thread` moves another Codex task and Git state between supported checkouts/hosts; it excludes cloud and the calling task. Use returned host IDs and matching saved projects. Do not substitute a newly created continuation for a requested migration.
 
-This tool currently excludes cloud and cannot move the calling task. For a self-move, retain the brief and explain how to use the supported app handoff control or request the move from another existing task; do not fork or create a replacement automatically. If a future tool explicitly supports cloud migration, use its declared route. Creating a ChatGPT Work continuation remains a separate operation.
+Identify required materials outside the transfer's coverage, preserve any hold instruction, and report missing files. A native move can interrupt a running task. Dispatch once, use `get_handoff_status` to verify the result, and inspect uncertain status before retrying. If the route is unavailable, retain a portable brief and state that migration was not performed. Claim only the task state and file access actually confirmed.
 
-Before moving, identify required tracked files, uncommitted/untracked changes, and non-repository attachments or artifacts using targeted checks or supplied state. Native Git-state transfer is not proof that every local file transfers. Record each required material's source, intended destination, and transfer/access status. Use explicit file-transfer facilities when available and within the requested scope; otherwise list missing files. Do not silently drop attachments, overwrite conflicting destination changes, or replace required files with a summary. Resolve material conflicts before migration when they could lose work.
+## Prepare work for later
 
-A running task is interrupted by the current native handoff. For deferred work, omit an execution follow-up; if a follow-up is needed, use the hold instruction below. If the available route cannot preserve the requested hold, prepare the handoff without moving it and explain the limitation. Preparation permits the transfer and checks needed for it, not the underlying work; "no run or setup at all" retains the stricter source-only behavior below.
-
-Dispatch once and use `get_handoff_status` with the returned operation ID and revision, preferring a 30-second wait for changes and backing off on unchanged status. Inspect an uncertain operation before retrying. Report pending, completed, or failed from its status, and name the confirmed destination. Distinguish native Git-state transfer from verified availability of additional materials. For immediate work, check required destination materials before resuming; for deferred work, preserve the hold and label any destination inspection postponed until start. If migration fails, retain the brief and report the known source/destination state without claiming rollback. Do not manually remove the source checkout or files.
-
-## From a phone: prepare work for later
-
-Interpret "send this to Codex so it's ready to be worked on when I get home" as a request to prepare or deliver work for later execution, preserving required files as well as context. If the user requests moving the existing task, use the migration route above; otherwise prepare the brief. Do not begin the underlying research, coding, or other execution. Do not infer a clock time, detect arrival, or create a reminder or automation from that phrase.
-
-Use the current environment to choose how the brief reaches Codex:
-
-- **Phone controlling a connected desktop through Remote:** use that host's available skills and task tools. If already in the intended PC-hosted Codex task, retain the brief there and identify that same task for pickup on the PC; its existing host files need no transfer. Report this as continuing on the same host. Otherwise resolve the intended destination and follow the migration or existing/new task rules above. Do not require a separate cloud plugin merely to use a skill already available on the connected host.
-- **Ordinary ChatGPT or Work on mobile:** invoke this skill only if it is available there, and use Codex delivery tools only if actually exposed. Installing an instruction-only plugin does not add task-transfer tools or a connection to the home PC. A locally prepared plugin ZIP is not proof of mobile installation.
-- **Destination unavailable or delivery tools absent:** return the self-contained brief in this source conversation with a recognizable label such as "Codex handoff - <subject>". Say "Prepared here; not delivered to Codex." Include a pickup instruction for home: "Use clean-handoff to bring the prepared handoff from [exact source task title] into this Codex task; keep it on hold until I say start." Codex can retrieve the named conversation if accessible, or the user can paste the brief. Do not claim a background queue, automatic retry, or later delivery without tool evidence for it.
-
-If the destination is ambiguous, prepare the brief first and ask only which Codex task or project should receive it. "Send this to Codex" alone does not select a repository or explicitly request a new task. Do not silently pick the skill's own repository as the work destination.
+When the user asks to prepare work for later, preserve that timing without beginning the underlying work or inferring a schedule. If the destination is ambiguous, prepare the brief and resolve the intended task or project before sending. If delivery is unavailable, retain a labeled brief in the source conversation and say it is prepared here, not delivered. The user can paste it into the destination or ask Codex to retrieve the named source if accessible. Do not claim automatic queuing or later delivery.
 
 For a deferred handoff, begin the destination prompt with:
 
@@ -76,7 +56,7 @@ For a deferred handoff, begin the destination prompt with:
 
 Use a supported draft or hold facility if the tool exposes one. The current Codex app `create_thread` and `send_message_to_thread` contracts have no paused-start parameter and can trigger a run; an acknowledgment-only prompt is an instruction to the recipient, not a scheduler-enforced pause. Do not invent a `paused` or `startAt` field. If the user requires no run or environment setup at all, prepare context in the source conversation instead of dispatching through those tools.
 
-Report the actual state: prepared only in the source, delivery/creation pending, delivered with a hold instruction, or recipient acknowledgment received. Do not label work "waiting in Codex" unless delivery is confirmed, or call a hold instruction acknowledged before observing the recipient's response. A host reconnecting, the user opening a task, or time passing does not release the hold.
+Report the actual state: prepared only in the source, delivery/creation pending, delivered with a hold instruction, or recipient acknowledgment received. Do not label work "waiting in Codex" unless delivery is confirmed, or call a hold instruction acknowledged before observing the recipient's response. Opening a task or time passing does not release the hold.
 
 ## Make the context usable across environments
 
