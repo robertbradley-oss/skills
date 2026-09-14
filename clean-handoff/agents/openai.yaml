@@ -1,6 +1,6 @@
 interface:
   display_name: "Clean Handoff"
-  short_description: "Fast handoff to a new task or copyable text"
-  default_prompt: "Use $clean-handoff to hand this work off with only the context needed to continue."
+  short_description: "Hand off work now or prepare it for later"
+  default_prompt: "Use $clean-handoff to prepare this work for Codex or ChatGPT Work, preserving the context, source links, and whether to start now or wait."
 policy:
   allow_implicit_invocation: true

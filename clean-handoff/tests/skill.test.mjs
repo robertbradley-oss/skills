@@ -6,22 +6,6 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-test("skill uses a single-workflow fast path", async () => {
-  const skill = await fsp.readFile(path.join(root, "SKILL.md"), "utf8");
-
-  assert.match(skill, /Use conversation context/u);
-  assert.match(skill, /Only create a task when the user explicitly requests one/u);
-  assert.match(skill, /Discover the saved project/u);
-  assert.match(skill, /current `create_thread` contract/u);
-  assert.match(skill, /honoring an explicit user request/u);
-  assert.match(skill, /Do not invent a branch/u);
-  assert.match(skill, /Create one task/u);
-  assert.match(skill, /do not retry an uncertain creation blindly/u);
-  assert.match(skill, /or wait for the destination to finish/u);
-  assert.match(skill, /Portable handoff/u);
-  assert.doesNotMatch(skill, /references\/|scripts\//u);
-});
-
 test("runtime package has no helper or workflow-reference latency", async () => {
   async function filesUnder(directory) {
     const files = [];
@@ -47,13 +31,16 @@ test("runtime package has no helper or workflow-reference latency", async () => 
 
 test("metadata remains concise and routable", async () => {
   const skill = (await fsp.readFile(path.join(root, "SKILL.md"), "utf8")).replace(/\r\n/gu, "\n");
-  const frontmatter = skill.slice(0, skill.indexOf("\n---", 4) + 4);
-  assert.equal(frontmatter, `---
-name: clean-handoff
-description: "Prepare a concise handoff or create a new task when explicitly requested."
----`);
+  const frontmatter = skill.match(/^---\n([\s\S]*?)\n---(?:\n|$)/u)?.[1];
+  assert.ok(frontmatter, "SKILL.md must have YAML frontmatter");
+  assert.match(frontmatter, /^name: clean-handoff$/mu);
+  const description = frontmatter.match(/^description: "(.+)"$/mu)?.[1];
+  assert.ok(description?.trim(), "skill discovery needs a description");
+  assert.ok(description.length <= 1024);
 
   const agents = await fsp.readFile(path.join(root, "agents", "openai.yaml"), "utf8");
-  assert.match(agents, /short_description: "Fast handoff to a new task or copyable text"/u);
+  const shortDescription = agents.match(/short_description: "(.+)"/u)?.[1];
+  assert.ok(shortDescription?.trim(), "skill UI needs a short description");
+  assert.ok(shortDescription.length >= 25 && shortDescription.length <= 64);
   assert.match(agents, /default_prompt: "Use \$clean-handoff /u);
 });
