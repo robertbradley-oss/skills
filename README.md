@@ -40,7 +40,7 @@ define the evidence needed to assess each agent.
 
 | Skill | Purpose | Package |
 | --- | --- | --- |
-| Clean Handoff | Summarize project context for a new Codex task. | [`clean-handoff/`](clean-handoff/) |
+| Clean Handoff | Preserve evidence, decisions, and next actions for reliable context transfer between tasks. | [`clean-handoff/`](clean-handoff/) |
 | GamePlan | Keep a project plan current and track which work is approved. | [`gameplan/`](gameplan/) |
 | Clean Up | Finish implementation tasks with scoped simplification, organization, cleanup, and validation, or audit workspace cleanup candidates. | [`clean-up/`](clean-up/) |
 | Simplify | Explain technical reports in everyday language without changing their conclusions. | [`simplify-report/`](simplify-report/) |
@@ -130,6 +130,59 @@ reverification. Static inspection is kept distinct from browser evidence,
 simulated request tests from real integration tests, and untested behavior
 from passed checks.
 
+## Clean Handoff
+
+Clean Handoff preserves the context another task needs to continue accurately.
+It prepares a copyable brief, uses available task tools for requested delivery,
+and helps resume incoming work without repeating completed steps.
+
+It carries:
+
+- the goal, acceptance criteria, completed work, and remaining work;
+- explicit user decisions, separately from assistant suggestions and unresolved ideas;
+- decision-relevant source links, evidence, and validation results;
+- required files, repository state, missing materials, and access limitations;
+- the next authorized action and whether to start now or wait.
+
+Research handoffs retain the source brief's evidence standard. This includes
+independent pain evidence, competitor checks, payment evidence, and minimal
+customer effort when those criteria apply. Copying a source link does not imply
+that its claims were reverified.
+
+Example requests:
+
+- "Use $clean-handoff to prepare a copyable brief for this work."
+- "Bring the context from my task named Research review into this task."
+- "Use $clean-handoff to continue this in my existing task named Release review."
+- "Create a new Codex task with this context."
+- "Create a ChatGPT Work cloud task with this research brief."
+- "Prepare this handoff for later; wait until I say start."
+- "Use $clean-handoff to resume from this handoff in the current workspace."
+
+Reading another conversation, delivering to an existing task, and creating a new
+one depend on tools and access in the current environment. New tasks require an
+explicit request. If delivery is unavailable, the skill returns a portable brief
+and clearly reports that it has not been delivered.
+
+Deferred handoffs carry an instruction to acknowledge receipt and wait for the
+user to start. This is a recipient instruction, not an enforced scheduling
+feature; delivery can trigger an acknowledgment run. If no run or setup is
+allowed, the brief stays in the source unless a supported draft facility exists.
+
+Native task migration is conditional on platform support and is distinct from
+context delivery. Required files and local changes are accounted for separately;
+a summary does not establish that they transferred. Cross-device delivery remains
+unverified and is not a promised capability of this skill.
+
+Clean Handoff is maintained directly in this repository; its earlier external
+snapshot is historical rather than a required byte-for-byte source.
+
+Context retrieval from an accessible ChatGPT conversation into a Codex task was
+demonstrated during development. That result does not establish Work cloud mode,
+file migration, or successful delivery in the opposite direction. The skill
+reports prepared, pending, delivered, and acknowledged states separately.
+Package and metadata checks validate structure, not end-to-end transfer behavior.
+
 ## Clean Up
 
 Clean Up supports two workflows: finishing an implementation task and auditing
@@ -209,8 +262,8 @@ by the exact action and evidence that matter.
 ## Repository validation
 
 The shared validation workflow under [`.github/workflows/`](.github/workflows/)
-checks all nineteen skill packages on Windows, macOS, and Linux, verifies Clean
-Handoff against its locked canonical source, runs its syntax and test gates,
+checks all nineteen skill packages on Windows, macOS, and Linux, runs Clean
+Handoff package and metadata tests,
 compiles the Clean Up helpers, and runs the package-local Clean Up and
 Simplify test suites. It also validates all four Copilot agent profiles and runs
 the definition auditor's tests. These automated checks do not establish agent
